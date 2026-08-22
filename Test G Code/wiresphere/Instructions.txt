@@ -1,0 +1,7 @@
+Knife path size 182 * 182mm
+
+Upper left corner of knife path origin writer
+
+Machine speed 3000mm/min
+
+Run in candle 0.9

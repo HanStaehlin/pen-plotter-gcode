@@ -1,0 +1,8 @@
+numpy>=1.24
+opencv-python>=4.8
+scipy>=1.10
+Flask>=3.0
+
+# Optional: the "Remove background" checkbox in the web UI.
+# Downloads a ~170 MB model on first use.
+# rembg>=2.0

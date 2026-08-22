@@ -1,0 +1,1 @@
+Please note: if you need to burn 0.9 firmware, first burn 1.1 Hex, Ax5.doesbot.pen.09.hexis the pen firmware, Ax5.doesbot.laser.09.hex is laser firmware.

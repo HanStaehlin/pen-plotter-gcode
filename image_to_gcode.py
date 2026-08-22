@@ -1,0 +1,211 @@
+#!/usr/bin/env python3
+"""Convert photographs to pen-plotter G-code.
+
+    python3 image_to_gcode.py photo.jpg -o photo.gcode
+    python3 image_to_gcode.py photo.jpg --engine waves --pen 0.3
+    python3 image_to_gcode.py photo.jpg --engine hilbert --preview
+
+Run ``--list-engines`` to see what each engine does.  The algorithms live in
+the ``plotter`` package; this file is the command line around them.
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+import cv2
+
+from plotter import Config, ENGINES, PAPER_SIZES, convert, load_image
+from plotter.gcode import format_duration
+
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        description="Convert an image to pen-plotter G-code.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    p.add_argument("input", nargs="?", help="input image (PNG, JPEG, TIFF, ...)")
+    p.add_argument("-o", "--output", help="output .gcode (default: <input>.gcode)")
+    p.add_argument("--list-engines", action="store_true",
+                   help="describe the available engines and exit")
+
+    g = p.add_argument_group("drawing")
+    g.add_argument("-e", "--engine", default="flowlines", choices=sorted(ENGINES),
+                   help="how the image is turned into strokes")
+    g.add_argument("--ink", type=float, default=1.0, metavar="SCALE",
+                   help="overall ink multiplier; below 1 draws lighter")
+    g.add_argument("--angle", type=float, default=45.0,
+                   help="stroke angle in flat areas, degrees")
+    g.add_argument("--spacing", type=float, default=0.0, metavar="MM",
+                   help="engine line spacing; 0 derives it from the pen width")
+    g.add_argument("--outline", action="store_true",
+                   help="trace outlines on top of the shading")
+    g.add_argument("--flow-coherence", type=float, default=1.0, metavar="F",
+                   help="flowlines: 0 ignores image structure, 1 follows it")
+    g.add_argument("--levels", type=int, default=12,
+                   help="contours: number of tonal levels")
+    g.add_argument("--points", type=int, default=12000,
+                   help="tsp: number of stipple points")
+    g.add_argument("--depth", type=int, default=9,
+                   help="hilbert: maximum subdivision depth")
+
+    g = p.add_argument_group("pen and page")
+    g.add_argument("--pen", type=float, default=0.4, metavar="MM",
+                   help="ink trace width; this is what calibrates tone")
+    g.add_argument("--paper", default="a4", choices=sorted(PAPER_SIZES),
+                   help="paper size")
+    g.add_argument("--portrait", action="store_true", help="portrait orientation")
+    g.add_argument("--margin", type=float, default=10.0, metavar="MM")
+    g.add_argument("--max-coverage", type=float, default=0.92, metavar="F",
+                   help="darkest ink coverage the pen can usefully reach")
+
+    g = p.add_argument_group("tone")
+    g.add_argument("-r", "--resolution", type=int, default=1100, metavar="PX",
+                   help="internal working resolution, long edge")
+    g.add_argument("--contrast", type=float, default=2.0, metavar="F",
+                   help="local contrast (CLAHE clip limit); 0 disables")
+    g.add_argument("--detail", type=float, default=0.45,
+                   help="structure-preserving detail boost, 0-1")
+    g.add_argument("--gamma", type=float, default=1.0,
+                   help="below 1 lightens midtones, above 1 darkens")
+    g.add_argument("--exposure", type=float, default=0.0, help="-1 to 1")
+    g.add_argument("--chroma", type=float, default=0.18, metavar="F",
+                   help="how much saturated colour darkens against neutrals")
+    g.add_argument("--ink-response", type=float, default=0.25, metavar="F",
+                   help="0 spreads tone perceptually, 1 matches luminance")
+    g.add_argument("--denoise", type=float, default=0.0)
+    g.add_argument("--invert", action="store_true")
+    g.add_argument("--flip-x", action="store_true", help="mirror top to bottom")
+    g.add_argument("--flip-y", action="store_true", help="mirror left to right")
+
+    g = p.add_argument_group("paths")
+    g.add_argument("--merge", type=float, default=1.0, metavar="MM",
+                   help="weld stroke ends closer than this into one stroke")
+    g.add_argument("--bridge", type=float, default=3.0, metavar="MM",
+                   help="cross gaps up to this with the pen down, over ink")
+    g.add_argument("--bridge-min-ink", type=float, default=0.30, metavar="F",
+                   help="minimum darkness under a bridge for it to be drawn")
+    g.add_argument("--simplify", type=float, default=0.06, metavar="MM")
+    g.add_argument("--no-sort", action="store_true",
+                   help="skip travel-order optimisation")
+
+    g = p.add_argument_group("machine")
+    g.add_argument("--feed", type=float, default=3000.0, help="drawing feed, mm/min")
+    g.add_argument("--travel-feed", type=float, default=6000.0, help="mm/min")
+    g.add_argument("--accel", type=float, default=400.0, help="mm/s^2, estimate only")
+
+    g = p.add_argument_group("output")
+    g.add_argument("--preview", nargs="?", const="auto", metavar="FILE",
+                   help="also write a preview PNG")
+    g.add_argument("--show-travel", action="store_true",
+                   help="draw pen-up moves on the preview")
+    g.add_argument("--dpi", type=int, default=160)
+    g.add_argument("-q", "--quiet", action="store_true")
+    return p
+
+
+def config_from_args(args) -> Config:
+    cfg = Config()
+    cfg.page.paper = args.paper
+    cfg.page.portrait = args.portrait
+    cfg.page.margin_mm = args.margin
+    cfg.page.resolve()
+
+    cfg.pen.width_mm = args.pen
+    cfg.pen.max_coverage = args.max_coverage
+
+    cfg.machine.feed_draw = args.feed
+    cfg.machine.feed_travel = args.travel_feed
+    cfg.machine.accel_mm_s2 = args.accel
+
+    cfg.tone.resolution = args.resolution
+    cfg.tone.clahe_clip = args.contrast
+    cfg.tone.detail = args.detail
+    cfg.tone.gamma = args.gamma
+    cfg.tone.exposure = args.exposure
+    cfg.tone.chroma_weight = args.chroma
+    cfg.tone.ink_response = args.ink_response
+    cfg.tone.denoise = args.denoise
+    cfg.tone.invert = args.invert
+    cfg.tone.flip_x = args.flip_x
+    cfg.tone.flip_y = args.flip_y
+
+    cfg.render.engine = args.engine
+    cfg.render.ink_scale = args.ink
+    cfg.render.angle_deg = args.angle
+    cfg.render.spacing_mm = args.spacing
+    cfg.render.outline = args.outline
+    cfg.render.flow_coherence = args.flow_coherence
+    cfg.render.contour_levels = args.levels
+    cfg.render.tsp_points = args.points
+    cfg.render.hilbert_max_depth = args.depth
+
+    cfg.paths.merge_tolerance_mm = args.merge
+    cfg.paths.bridge_max_mm = args.bridge
+    cfg.paths.bridge_min_ink = args.bridge_min_ink
+    cfg.paths.simplify_mm = args.simplify
+    cfg.paths.sort = not args.no_sort
+    return cfg
+
+
+def main(argv=None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+
+    if args.list_engines:
+        width = max(len(k) for k in ENGINES)
+        for name, (_, description, continuity) in ENGINES.items():
+            print(f"  {name:<{width}}  {description}")
+            print(f"  {'':<{width}}  pen lifts: {continuity}")
+        return 0
+
+    if not args.input:
+        parser.error("an input image is required")
+
+    src = Path(args.input)
+    if not src.exists():
+        print(f"error: no such file: {src}", file=sys.stderr)
+        return 1
+
+    cfg = config_from_args(args)
+    note = (lambda msg: None) if args.quiet else (lambda msg: print(f"  {msg} ..."))
+
+    if not args.quiet:
+        print(f"Converting {src.name} with the {args.engine} engine")
+    result = convert(load_image(str(src)), cfg, progress=note)
+
+    out = Path(args.output) if args.output else src.with_suffix(".gcode")
+    header = (f"generated by image_to_gcode from {src.name}\n"
+              f"engine {args.engine}, pen {args.pen} mm, "
+              f"{cfg.page.paper} {'portrait' if args.portrait else 'landscape'}")
+    out.write_text(result.gcode(header))
+
+    s = result.stats
+    if not args.quiet:
+        print(f"\n  image      {s['image_mm']}")
+        print(f"  strokes    {s['strokes']} "
+              f"(welded down from {s['strokes_before_merge']})")
+        print(f"  draw       {s['draw_dist_m']:.1f} m")
+        print(f"  travel     {s['travel_dist_m']:.1f} m "
+              f"(from {s['travel_unoptimised_m']:.1f} m unordered)")
+        print(f"  plot time  {s['label']}  ({s['breakdown']})")
+        if s.get("tone_error") is not None:
+            print(f"  tone error {s['tone_error']:.3f} coverage RMS")
+        print(f"  wrote      {out}  ({out.stat().st_size / 1024:.0f} kB, "
+              f"{s['points']} points)")
+        print(f"  took       {format_duration(s['elapsed_s'])}")
+
+    if args.preview is not None:
+        path = (str(src.with_name(src.stem + "_preview.png"))
+                if args.preview == "auto" else args.preview)
+        img = result.preview(dpi=args.dpi, show_travel=args.show_travel)
+        cv2.imwrite(path, cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
+        if not args.quiet:
+            print(f"  preview    {path}")
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
