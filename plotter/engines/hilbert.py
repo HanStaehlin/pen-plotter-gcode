@@ -23,11 +23,22 @@ def generate(value, coverage, canvas, pen, cfg):
     pen_px = max(0.4, pen.width_mm * px_per_mm)
 
     max_depth = int(np.clip(cfg.hilbert_max_depth, 2, 10))
-    min_depth = int(np.clip(cfg.hilbert_min_depth, 1, max_depth))
-    n = 1 << max_depth
     side = float(max(w, h))
 
-    depth = _leaf_depths(coverage, side, n, min_depth, max_depth, pen_px)
+    # Depth sets cell size and ink density together - that is the engine's
+    # one real limitation.  A shallow cell is not just pale, it is *large*:
+    # at depth 3 on A4 it spans 24 mm and carries a single stroke, which the
+    # eye reads as a bare patch rather than as light tone.  So the floor is
+    # set by how big a cell may get on paper, not by an abstract depth.
+    coarsest_px = max(1.0, cfg.hilbert_coarsest_mm * px_per_mm)
+    min_depth = int(np.ceil(np.log2(max(1.0, side / coarsest_px))))
+    min_depth = int(np.clip(min_depth, 1, max_depth))
+    n = 1 << max_depth
+
+    # Blank areas narrower than a few cells are not worth lifting for.
+    white_px = 3.0 * coarsest_px
+    depth = _leaf_depths(coverage, side, n, min_depth, max_depth, pen_px,
+                         white_px)
 
     d = np.arange(n * n, dtype=np.int64)
     hx, hy = _hilbert_d2xy(n, d)
@@ -81,7 +92,8 @@ def generate(value, coverage, canvas, pen, cfg):
     return paths, ink
 
 
-def _leaf_depths(coverage, side, n, min_depth, max_depth, pen_px) -> np.ndarray:
+def _leaf_depths(coverage, side, n, min_depth, max_depth, pen_px,
+                 white_px: float = 0.0) -> np.ndarray:
     """Subdivision depth per finest-level cell, sized to match coverage.
 
     At depth ``d`` the curve lays about ``side * 2^d`` of line across a
@@ -116,8 +128,18 @@ def _leaf_depths(coverage, side, n, min_depth, max_depth, pen_px) -> np.ndarray:
                           (n, n), interpolation=cv2.INTER_NEAREST)
         depth[stop > 0] = d
 
-    empty = cv2.resize(sq, (n, n), interpolation=cv2.INTER_AREA) <= 0
-    depth[empty] = 0
+    # Paper white breaks the curve, and every break is a pen lift.  Tone just
+    # under the ink cutoff speckles the light parts of an image with isolated
+    # blank cells, which would shred one continuous curve into hundreds of
+    # dashes for no visible gain.  Opening the mask keeps genuine white areas
+    # white at full size while closing over the speckle.
+    empty = (cv2.resize(sq, (n, n), interpolation=cv2.INTER_AREA) <= 0)
+    empty = empty.astype(np.uint8)
+    span = max(1, int(round(white_px * n / side)))
+    if span > 1:
+        k = np.ones((span, span), np.uint8)
+        empty = cv2.morphologyEx(empty, cv2.MORPH_OPEN, k)
+    depth[empty > 0] = 0
     return depth
 
 

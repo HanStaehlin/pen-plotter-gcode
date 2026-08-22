@@ -74,6 +74,7 @@ def config_from_form() -> Config:
     cfg.render.contour_levels = _i("levels", 12)
     cfg.render.tsp_points = _i("points", 12000)
     cfg.render.hilbert_max_depth = _i("depth", 9)
+    cfg.render.hilbert_coarsest_mm = _f("coarsest", 4.0)
 
     cfg.paths.merge_tolerance_mm = _f("merge", 1.0)
     cfg.paths.bridge_max_mm = _f("bridge", 3.0)
@@ -544,7 +545,16 @@ HTML = r"""
           <input type="range" id="points" min="1000" max="40000" step="500" value="12000">
         </div>
         <div class="ctl" data-for="hilbert">
-          <label>Maximum depth <span class="v" id="depthV">9</span></label>
+          <label>
+            <span>Coarsest fill
+              <span class="tip" title="The largest cell the curve may collapse to. A big cell carries a single squiggle, so past a few millimetres pale areas stop reading as light tone and start reading as bare patches. Lower this if the subject looks unpainted.">i</span>
+            </span>
+            <span class="v" id="coarsestV">4.0 mm</span>
+          </label>
+          <input type="range" id="coarsest" min="1.5" max="16" step="0.5" value="4">
+        </div>
+        <div class="ctl" data-for="hilbert">
+          <label>Finest detail <span class="v" id="depthV">depth 9</span></label>
           <input type="range" id="depth" min="5" max="10" step="1" value="9">
         </div>
         <div class="ctl" data-for="waves,contours">
@@ -743,7 +753,8 @@ const $ = id => document.getElementById(id);
 const FMT = {
   ink:v=>(+v).toFixed(2)+'×', angle:v=>v+'°',
   coherence:v=>Math.round(v*100)+'%', levels:v=>v,
-  points:v=>(+v).toLocaleString('en-US').replace(/,/g,' '), depth:v=>v,
+  points:v=>(+v).toLocaleString('en-US').replace(/,/g,' '),
+  depth:v=>'depth '+v, coarsest:v=>(+v).toFixed(1)+' mm',
   spacing:v=>(+v===0?'auto':(+v).toFixed(1)+' mm'),
   pen:v=>(+v).toFixed(2)+' mm', contrast:v=>(+v).toFixed(1),
   detail:v=>(+v).toFixed(2), exposure:v=>(+v).toFixed(2), gamma:v=>(+v).toFixed(2),
@@ -812,7 +823,8 @@ function setFile(f) {
 }
 
 /* ── generate ── */
-const FIELDS = ['ink','angle','coherence','levels','points','depth','spacing',
+const FIELDS = ['ink','angle','coherence','levels','points','depth','coarsest',
+  'spacing',
   'pen','paper','margin','contrast','detail','exposure','gamma','chroma',
   'ink_response','resolution','merge','bridge','bridge_min_ink','max_coverage',
   'feed','travel_feed'];

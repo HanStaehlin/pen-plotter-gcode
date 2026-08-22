@@ -130,7 +130,11 @@ class RenderConfig:
     # waves
     wave_period_mm: float = 2.4
     # hilbert
-    hilbert_min_depth: int = 3
+    #: Coarsest cell the curve may collapse to, in mm.  This is the real
+    #: control on light areas: a cell that big carries one squiggle, so past
+    #: a few millimetres it stops reading as pale tone and starts reading as
+    #: a hole in the drawing.
+    hilbert_coarsest_mm: float = 4.0
     hilbert_max_depth: int = 9
     # tsp
     tsp_points: int = 12000

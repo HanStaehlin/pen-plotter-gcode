@@ -24,14 +24,21 @@ python3 image_to_gcode.py --list-engines
 |-------------|---------------------------------------------------|------------------|
 | `flowlines` | Strokes follow the image's own structure          | many long strokes|
 | `waves`     | One serpentine sweep; tone from how far it detours| near-continuous  |
-| `hilbert`   | A single space-filling curve, adaptive depth      | one stroke       |
-| `tsp`       | Stipple density joined into one continuous tour   | one stroke       |
+| `hilbert`   | A single space-filling curve, adaptive depth      | one curve        |
+| `tsp`       | Stipple density joined into one continuous tour   | one tour         |
 | `contours`  | Tonal isolines, long closed loops                 | few long loops   |
 | `outline`   | Traced edges only, no shading                     | few strokes      |
 | `lineart`   | Centreline trace of an existing drawing or scan   | few strokes      |
 
 `flowlines` is the default and the best general answer for photographs.
-`hilbert` and `tsp` are the ones to reach for when pen lifts really matter.
+`hilbert` and `tsp` are the ones to reach for when pen lifts really matter;
+both stay unbroken except where the paper is genuinely blank.
+
+On `hilbert`, **Coarsest fill** (`--coarsest`) is the setting that matters.
+Depth controls cell size and ink density together, so a shallow cell is not
+just pale, it is *large* — at 24 mm it carries one squiggle and reads as a
+bare patch rather than as light tone. Lower it if pale areas look unpainted;
+raise it for a sparser, faster plot.
 
 ## How it works
 

@@ -48,7 +48,11 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--points", type=int, default=12000,
                    help="tsp: number of stipple points")
     g.add_argument("--depth", type=int, default=9,
-                   help="hilbert: maximum subdivision depth")
+                   help="hilbert: maximum subdivision depth (darkest fill)")
+    g.add_argument("--coarsest", type=float, default=4.0, metavar="MM",
+                   help="hilbert: largest cell the curve may collapse to; "
+                        "raise it for lighter, sparser fill, lower it if "
+                        "pale areas come out looking bare")
 
     g = p.add_argument_group("pen and page")
     g.add_argument("--pen", type=float, default=0.4, metavar="MM",
@@ -140,6 +144,7 @@ def config_from_args(args) -> Config:
     cfg.render.contour_levels = args.levels
     cfg.render.tsp_points = args.points
     cfg.render.hilbert_max_depth = args.depth
+    cfg.render.hilbert_coarsest_mm = args.coarsest
 
     cfg.paths.merge_tolerance_mm = args.merge
     cfg.paths.bridge_max_mm = args.bridge
