@@ -83,7 +83,12 @@ def config_from_form() -> Config:
 
 @app.route("/")
 def index():
-    engines = [(name, meta[1], meta[2]) for name, meta in ENGINES.items()]
+    engines = []
+    for name, meta in ENGINES.items():
+        # Descriptions read "Name - blurb"; the card wants those apart.
+        label, _, blurb = meta[1].partition("\u2014")
+        engines.append({"id": name, "label": label.strip(),
+                        "blurb": blurb.strip(), "lifts": meta[2]})
     return render_template_string(HTML, engines=engines,
                                   papers=sorted(PAPER_SIZES))
 
@@ -157,279 +162,588 @@ HTML = r"""
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Image → G-code</title>
+<title>Plotter — image to G-code</title>
 <style>
-  :root {
-    --bg:#14161f; --card:#1b1f2e; --sunk:#131622; --line:#2b3145;
-    --text:#e8eaf2; --muted:#8b93ab; --accent:#f2545b; --ok:#4ec9a5;
-    --radius:10px;
+  /* Monochrome by design: the output is one ink on one sheet of paper, and
+     the interface says the same thing. Every value below is a neutral. */
+  :root{
+    --surface:#ececea;      /* the desk the paper sits on */
+    --panel:#ffffff;
+    --field:#f5f5f3;
+    --ink:#101010;
+    --ink-2:#5e5e5c;
+    --ink-3:#93938f;
+    --rule:#e3e3df;
+    --rule-2:#c9c9c4;
+    --sheet-shadow:0 1px 2px rgba(0,0,0,.07),0 12px 32px rgba(0,0,0,.13);
+    --r:7px;
+    --sans:ui-sans-serif,-apple-system,"SF Pro Text","Segoe UI",Inter,
+           "Helvetica Neue",Arial,sans-serif;
+    --mono:ui-monospace,"SF Mono",SFMono-Regular,"JetBrains Mono",Menlo,monospace;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --surface:#0c0c0c; --panel:#161616; --field:#1e1e1e;
+      --ink:#f2f2f0; --ink-2:#a3a39f; --ink-3:#6e6e6a;
+      --rule:#282828; --rule-2:#3a3a3a;
+      --sheet-shadow:0 2px 4px rgba(0,0,0,.5),0 18px 44px rgba(0,0,0,.6);
+    }
   }
   *{box-sizing:border-box;margin:0;padding:0}
-  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
-       background:var(--bg);color:var(--text);min-height:100vh;font-size:14px}
-  header{padding:16px 28px;border-bottom:1px solid var(--line);
-         display:flex;align-items:baseline;gap:14px}
-  header h1{font-size:1.15rem;font-weight:600}
-  header span{color:var(--muted);font-size:.85rem}
-  .wrap{display:grid;grid-template-columns:360px 1fr;gap:20px;
-        padding:20px 28px;max-width:1600px;margin:0 auto}
-  .panel{background:var(--card);border-radius:var(--radius);padding:18px;
-         display:flex;flex-direction:column;gap:14px;height:fit-content;
-         position:sticky;top:20px;max-height:calc(100vh - 40px);overflow-y:auto}
-  fieldset{border:none;display:flex;flex-direction:column;gap:11px}
-  legend{font-size:.7rem;font-weight:700;color:var(--muted);
-         text-transform:uppercase;letter-spacing:.09em;padding-bottom:8px}
-  .drop{border:2px dashed var(--line);border-radius:var(--radius);
-        padding:22px 14px;text-align:center;cursor:pointer;transition:.15s}
-  .drop:hover,.drop.over{border-color:var(--accent);background:rgba(242,84,91,.06)}
+  html,body{height:100%}
+  body{
+    font-family:var(--sans);font-size:13px;line-height:1.5;
+    background:var(--surface);color:var(--ink);
+    -webkit-font-smoothing:antialiased;
+    font-variant-numeric:tabular-nums;
+  }
+
+  /* ── masthead ──────────────────────────────────────────────── */
+  .top{
+    display:flex;align-items:center;justify-content:space-between;
+    gap:20px;padding:0 22px;height:56px;
+    background:var(--panel);border-bottom:1px solid var(--rule);
+    position:sticky;top:0;z-index:20;
+  }
+  .brand{display:flex;align-items:center;gap:11px}
+  .brand svg{display:block}
+  .brand h1{font-size:14px;font-weight:600;letter-spacing:-.01em}
+  .brand .tag{
+    font-size:10px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--ink-3);padding-left:11px;margin-left:1px;
+    border-left:1px solid var(--rule);
+  }
+  .top .spec{font-family:var(--mono);font-size:11px;color:var(--ink-3)}
+
+  /* ── shell ─────────────────────────────────────────────────── */
+  .shell{
+    display:grid;grid-template-columns:326px minmax(0,1fr);
+    gap:18px;padding:18px;align-items:start;
+    max-width:1680px;margin:0 auto;
+  }
+
+  /* ── control column ────────────────────────────────────────── */
+  .panel{
+    background:var(--panel);border:1px solid var(--rule);border-radius:var(--r);
+    position:sticky;top:74px;display:flex;flex-direction:column;
+    max-height:calc(100vh - 92px);overflow:hidden;
+  }
+  .scroll{overflow-y:auto;padding:4px 0 2px;flex:1;scrollbar-width:thin}
+  .scroll::-webkit-scrollbar{width:9px}
+  .scroll::-webkit-scrollbar-thumb{
+    background:var(--rule-2);border-radius:9px;
+    border:3px solid var(--panel);
+  }
+
+  section{padding:15px 17px;border-bottom:1px solid var(--rule)}
+  section:last-child{border-bottom:none}
+  .sec-head{
+    display:flex;align-items:baseline;justify-content:space-between;
+    gap:8px;margin-bottom:12px;
+  }
+  .sec-head h2{
+    font-size:10px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;
+    color:var(--ink-3);
+  }
+  .sec-head .aside{font-family:var(--mono);font-size:10px;color:var(--ink-3)}
+
+  /* ── file drop ─────────────────────────────────────────────── */
+  .drop{
+    border:1px dashed var(--rule-2);border-radius:var(--r);
+    padding:20px 14px;text-align:center;cursor:pointer;
+    transition:border-color .15s,background .15s;background:var(--field);
+  }
+  .drop:hover,.drop.over{border-color:var(--ink);background:var(--panel)}
   .drop input{display:none}
-  .drop .hint{color:var(--muted);font-size:.8rem;margin-top:4px}
-  .drop img{max-width:100%;max-height:110px;border-radius:6px;margin-top:10px;
-            object-fit:contain}
-  .drop .fname{margin-top:6px;font-size:.78rem;color:var(--accent);
-               word-break:break-all}
-  .ctl{display:flex;flex-direction:column;gap:5px}
-  .ctl label{font-size:.78rem;color:var(--muted);display:flex;
-             justify-content:space-between;gap:8px}
-  .ctl label b{color:var(--text);font-weight:600;font-variant-numeric:tabular-nums}
-  select,input[type=number]{background:var(--sunk);color:var(--text);
-    border:1px solid var(--line);border-radius:6px;padding:7px 9px;
-    font-size:.85rem;width:100%;font-family:inherit}
-  input[type=range]{-webkit-appearance:none;appearance:none;height:5px;
-    border-radius:3px;background:var(--sunk);outline:none;width:100%}
-  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;
-    height:15px;border-radius:50%;background:var(--accent);cursor:pointer}
-  .engine-note{font-size:.75rem;color:var(--muted);line-height:1.45;
-    background:var(--sunk);border-radius:6px;padding:8px 10px}
-  .engine-note b{color:var(--ok)}
-  .row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-  .check{display:flex;align-items:center;gap:8px;font-size:.82rem;cursor:pointer}
-  .check input{accent-color:var(--accent);width:15px;height:15px}
-  details>summary{cursor:pointer;font-size:.7rem;font-weight:700;
-    color:var(--muted);text-transform:uppercase;letter-spacing:.09em;
-    list-style:none;padding:6px 0}
-  details>summary::-webkit-details-marker{display:none}
-  details>summary::before{content:"▸ ";color:var(--accent)}
-  details[open]>summary::before{content:"▾ "}
-  details>div{display:flex;flex-direction:column;gap:11px;padding-top:6px}
-  .btn{background:var(--accent);color:#fff;border:none;border-radius:8px;
-       padding:12px;font-size:.95rem;font-weight:600;cursor:pointer;width:100%}
-  .btn:disabled{opacity:.4;cursor:not-allowed}
-  .btn.alt{background:var(--sunk);border:1px solid var(--line)}
-  .stage{background:var(--card);border-radius:var(--radius);padding:20px;
-         display:flex;flex-direction:column;align-items:center;gap:16px;
-         min-height:520px;justify-content:center}
-  .stage img{max-width:100%;max-height:calc(100vh - 260px);border-radius:6px;
-             box-shadow:0 6px 30px rgba(0,0,0,.45);background:#fff}
-  .empty{color:var(--muted);text-align:center;line-height:1.7}
-  .stats{display:none;width:100%;background:var(--sunk);border-radius:8px;
-         padding:14px 16px}
-  .stats .big{font-size:1.7rem;font-weight:700;color:var(--accent);
-              display:flex;align-items:baseline;gap:9px}
-  .stats .big small{font-size:.78rem;color:var(--muted);font-weight:400}
-  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(112px,1fr));
-        gap:8px;margin-top:12px}
-  .stat{background:rgba(255,255,255,.035);border-radius:6px;padding:8px 10px;
-        font-size:.7rem;color:var(--muted)}
-  .stat b{display:block;color:var(--text);font-size:.92rem;margin-bottom:2px;
-          font-variant-numeric:tabular-nums}
-  .msg{font-size:.8rem;color:var(--muted);min-height:1.2em;text-align:center}
-  .msg.err{color:var(--accent)}
-  .spin{display:none;width:30px;height:30px;border:3px solid var(--line);
-        border-top-color:var(--accent);border-radius:50%;
-        animation:spin .8s linear infinite}
-  @keyframes spin{to{transform:rotate(360deg)}}
-  @media (max-width:900px){.wrap{grid-template-columns:1fr}.panel{position:static;max-height:none}}
+  .drop .glyph{color:var(--ink-3);margin-bottom:7px}
+  .drop .lead{font-size:12.5px}
+  .drop .lead b{font-weight:600;border-bottom:1px solid var(--rule-2)}
+  .drop .hint{font-size:10.5px;color:var(--ink-3);margin-top:3px;
+              letter-spacing:.05em;text-transform:uppercase}
+  .drop.loaded{padding:11px;border-style:solid;text-align:left;
+               display:flex;gap:11px;align-items:center}
+  .drop.loaded .glyph,.drop.loaded .lead,.drop.loaded .hint{display:none}
+  .drop img{display:none;width:54px;height:54px;object-fit:cover;
+            border-radius:4px;border:1px solid var(--rule);flex:none}
+  .drop.loaded img{display:block}
+  .fname{display:none;font-size:12px;font-weight:500;overflow:hidden;
+         text-overflow:ellipsis;white-space:nowrap}
+  .fname small{display:block;font-family:var(--mono);font-size:10px;
+               color:var(--ink-3);font-weight:400;letter-spacing:.04em;
+               text-transform:uppercase;margin-top:2px}
+  .drop.loaded .fname{display:block}
+
+  /* ── engine cards ──────────────────────────────────────────── */
+  .engines{display:flex;flex-direction:column;gap:5px}
+  .eng{display:block;cursor:pointer;position:relative}
+  .eng input{position:absolute;opacity:0;pointer-events:none}
+  .eng .box{
+    display:block;                 /* a span would collapse the card inline */
+    border:1px solid var(--rule);border-radius:6px;padding:9px 11px;
+    transition:border-color .12s,background .12s;background:var(--panel);
+  }
+  .eng:hover .box{border-color:var(--rule-2)}
+  .eng input:checked + .box{border-color:var(--ink);background:var(--field)}
+  .eng input:focus-visible + .box{outline:2px solid var(--ink);outline-offset:2px}
+  .eng .line1{display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+  .eng .nm{font-size:12.5px;font-weight:600;letter-spacing:-.005em;min-width:0}
+  .eng .lift{
+    font-family:var(--mono);font-size:9.5px;color:var(--ink-3);
+    letter-spacing:.02em;white-space:nowrap;
+  }
+  .eng input:checked + .box .lift{color:var(--ink-2)}
+  .eng .bl{display:block;font-size:11px;color:var(--ink-2);margin-top:2px;
+           line-height:1.4}
+
+  /* ── controls ──────────────────────────────────────────────── */
+  .ctl{margin-top:12px}
+  .ctl:first-child{margin-top:0}
+  .ctl > label{
+    display:flex;align-items:baseline;justify-content:space-between;gap:8px;
+    font-size:11.5px;color:var(--ink-2);margin-bottom:6px;
+  }
+  .ctl > label .v{font-family:var(--mono);font-size:11px;color:var(--ink)}
+  .tip{
+    display:inline-flex;align-items:center;justify-content:center;
+    width:13px;height:13px;border-radius:50%;border:1px solid var(--rule-2);
+    font-size:9px;color:var(--ink-3);cursor:help;flex:none;
+    font-family:var(--sans);line-height:1;
+  }
+  .tip:hover{border-color:var(--ink);color:var(--ink)}
+
+  input[type=range]{
+    -webkit-appearance:none;appearance:none;width:100%;height:16px;
+    background:transparent;display:block;cursor:pointer;
+  }
+  input[type=range]::-webkit-slider-runnable-track{
+    height:2px;border-radius:2px;
+    background:linear-gradient(to right,var(--ink) 0 var(--pct,50%),
+               var(--rule-2) var(--pct,50%) 100%);
+  }
+  input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;width:13px;height:13px;border-radius:50%;
+    background:var(--panel);border:1.5px solid var(--ink);margin-top:-5.5px;
+    transition:transform .1s;
+  }
+  input[type=range]:active::-webkit-slider-thumb{transform:scale(1.18)}
+  input[type=range]::-moz-range-track{height:2px;background:var(--rule-2)}
+  input[type=range]::-moz-range-progress{height:2px;background:var(--ink)}
+  input[type=range]::-moz-range-thumb{
+    width:11px;height:11px;border-radius:50%;
+    background:var(--panel);border:1.5px solid var(--ink);
+  }
+
+  select,input[type=number]{
+    width:100%;font-family:var(--sans);font-size:12px;color:var(--ink);
+    background:var(--field);border:1px solid var(--rule);border-radius:5px;
+    padding:7px 9px;
+  }
+  input[type=number]{font-family:var(--mono);font-size:11.5px}
+  select:focus,input[type=number]:focus{outline:none;border-color:var(--ink)}
+  select{
+    -webkit-appearance:none;appearance:none;padding-right:26px;cursor:pointer;
+    background-image:url("data:image/svg+xml;charset=utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='9' height='6'%3E%3Cpath d='M1 1l3.5 3.5L8 1' stroke='%2393938f' stroke-width='1.4' fill='none' stroke-linecap='round'/%3E%3C/svg%3E");
+    background-repeat:no-repeat;background-position:right 9px center;
+  }
+  .pair{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+
+  .check{
+    display:flex;align-items:center;gap:9px;font-size:12px;
+    cursor:pointer;padding:4px 0;color:var(--ink-2);
+  }
+  .check:hover{color:var(--ink)}
+  .check input{
+    -webkit-appearance:none;appearance:none;width:14px;height:14px;flex:none;
+    border:1px solid var(--rule-2);border-radius:3px;background:var(--field);
+    position:relative;cursor:pointer;
+  }
+  .check input:checked{background:var(--ink);border-color:var(--ink)}
+  .check input:checked::after{
+    content:"";position:absolute;left:4px;top:1px;width:4px;height:8px;
+    border:solid var(--panel);border-width:0 1.6px 1.6px 0;
+    transform:rotate(42deg);
+  }
+  .check input:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+
+  details > summary{
+    list-style:none;cursor:pointer;display:flex;align-items:center;gap:7px;
+    font-size:10px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;
+    color:var(--ink-3);
+  }
+  details > summary::-webkit-details-marker{display:none}
+  details > summary::before{
+    content:"";width:5px;height:5px;flex:none;
+    border-right:1.4px solid currentColor;border-bottom:1.4px solid currentColor;
+    transform:rotate(-45deg);transition:transform .15s;margin-left:1px;
+  }
+  details[open] > summary::before{transform:rotate(45deg)}
+  details > summary:hover{color:var(--ink)}
+  details .body{padding-top:13px}
+
+  /* ── actions ───────────────────────────────────────────────── */
+  .foot{
+    padding:13px 17px;border-top:1px solid var(--rule);background:var(--panel);
+    display:flex;flex-direction:column;gap:8px;flex:none;
+  }
+  .btn{
+    width:100%;font-family:var(--sans);font-size:13px;font-weight:600;
+    padding:11px;border-radius:5px;cursor:pointer;border:1px solid var(--ink);
+    background:var(--ink);color:var(--panel);transition:opacity .12s;
+  }
+  .btn:hover:not(:disabled){opacity:.84}
+  .btn:disabled{opacity:.28;cursor:not-allowed}
+  .btn.ghost{background:transparent;color:var(--ink);border-color:var(--rule-2)}
+  .btn.ghost:hover{border-color:var(--ink);opacity:1}
+  .note{font-size:10.5px;color:var(--ink-3);text-align:center;min-height:1.3em;
+        line-height:1.45}
+  .note.bad{color:var(--ink)}
+  .note.bad::before{content:"⚠ ";}
+
+  /* ── stage ─────────────────────────────────────────────────── */
+  .stage{
+    background:var(--panel);border:1px solid var(--rule);border-radius:var(--r);
+    min-height:calc(100vh - 92px);display:flex;flex-direction:column;
+    overflow:hidden;position:relative;
+  }
+  .bar{height:1px;background:var(--rule);overflow:hidden;flex:none}
+  .bar::after{
+    content:"";display:none;height:100%;width:34%;background:var(--ink);
+    animation:slide 1.15s ease-in-out infinite;
+  }
+  .stage.busy .bar::after{display:block}
+  @keyframes slide{
+    0%{transform:translateX(-105%)}
+    100%{transform:translateX(400%)}
+  }
+
+  .sheetwrap{
+    flex:1;display:flex;flex-direction:column;align-items:center;
+    justify-content:center;gap:13px;padding:32px 28px;
+    background:var(--surface);min-height:340px;
+  }
+  .stage.busy .sheetwrap{opacity:.42;transition:opacity .2s}
+  .sheet{
+    background:#fff;box-shadow:var(--sheet-shadow);border-radius:2px;
+    max-width:100%;line-height:0;
+  }
+  .sheet img{display:block;max-width:100%;max-height:calc(100vh - 330px);
+             border-radius:2px}
+  .caption{
+    font-family:var(--mono);font-size:10px;letter-spacing:.08em;
+    text-transform:uppercase;color:var(--ink-3);
+  }
+  .blank{text-align:center;color:var(--ink-3);max-width:340px}
+  .blank svg{margin:0 auto 16px;display:block;color:var(--rule-2)}
+  .blank h3{font-size:14px;font-weight:600;color:var(--ink-2);margin-bottom:5px}
+  .blank p{font-size:12px;line-height:1.6}
+
+  /* ── readout ───────────────────────────────────────────────── */
+  .readout{display:none;border-top:1px solid var(--rule);background:var(--panel);
+           flex:none}
+  .readout.on{display:block}
+  .headline{
+    display:flex;align-items:baseline;gap:11px;flex-wrap:wrap;
+    padding:15px 20px 12px;
+  }
+  .headline .big{font-size:27px;font-weight:600;letter-spacing:-.02em;
+                 font-family:var(--mono)}
+  .headline .cap{font-size:11px;color:var(--ink-3);letter-spacing:.04em;
+                 text-transform:uppercase}
+  .headline .rule{flex:1;height:1px;background:var(--rule);min-width:20px}
+  .metrics{
+    display:grid;grid-template-columns:repeat(auto-fit,minmax(112px,1fr));
+    border-top:1px solid var(--rule);
+  }
+  .metrics > div{
+    padding:11px 20px;border-right:1px solid var(--rule);
+  }
+  .metrics > div:last-child{border-right:none}
+  .metrics dt{
+    font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--ink-3);margin-bottom:3px;
+  }
+  .metrics dd{font-family:var(--mono);font-size:14px;font-weight:500}
+  .metrics dd .unit{font-size:10px;color:var(--ink-3);margin-left:2px}
+  .delta{font-size:10px;color:var(--ink-3);font-family:var(--mono);margin-top:2px}
+
+  @media (max-width:940px){
+    .shell{grid-template-columns:1fr}
+    .panel{position:static;max-height:none}
+    .stage{min-height:0}
+  }
 </style>
 </head>
 <body>
-<header>
-  <h1>Image → G-code</h1>
-  <span>pen plotter converter</span>
-</header>
 
-<div class="wrap">
-  <div class="panel">
-    <div class="drop" id="drop">
-      <div style="font-size:1.6rem">🖼️</div>
-      <div>Drop an image or <b>click to browse</b></div>
-      <div class="hint">PNG · JPEG · TIFF · BMP</div>
-      <div class="fname" id="fname"></div>
-      <img id="thumb" style="display:none">
-      <input type="file" id="file" accept="image/*">
-    </div>
+<div class="top">
+  <div class="brand">
+    <svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true">
+      <rect x="1.5" y="1.5" width="19" height="19" rx="2.5"
+            stroke="currentColor" stroke-width="1.2" opacity=".28"/>
+      <path d="M5 15.5c2.2-6.4 4.1-8.6 5.6-6.7 1.5 1.9-1.9 5.4-.4 6.5 1.4 1.1 4-1.6 6.3-8"
+            stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+    </svg>
+    <h1>Plotter</h1>
+    <span class="tag">image → g-code</span>
+  </div>
+  <div class="spec" id="spec">A4 landscape · 0.40 mm pen</div>
+</div>
 
-    <fieldset>
-      <legend>Drawing</legend>
-      <div class="ctl">
-        <label>Engine</label>
-        <select id="engine">
-          {% for name, desc, cont in engines %}
-          <option value="{{name}}"{% if name=='flowlines' %} selected{% endif %}>{{desc}}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <div class="engine-note" id="engineNote"></div>
-      <div class="ctl">
-        <label>Ink <b id="inkV">1.00×</b></label>
-        <input type="range" id="ink" min="0.3" max="2" step="0.05" value="1">
-      </div>
-      <div class="ctl">
-        <label>Stroke angle in flat areas <b id="angleV">45°</b></label>
-        <input type="range" id="angle" min="0" max="180" step="5" value="45">
-      </div>
-      <div class="ctl" data-for="flowlines">
-        <label>Follow image structure <b id="coherenceV">100%</b></label>
-        <input type="range" id="coherence" min="0" max="1" step="0.05" value="1">
-      </div>
-      <div class="ctl" data-for="contours">
-        <label>Tonal levels <b id="levelsV">12</b></label>
-        <input type="range" id="levels" min="3" max="40" step="1" value="12">
-      </div>
-      <div class="ctl" data-for="tsp">
-        <label>Stipple points <b id="pointsV">12000</b></label>
-        <input type="range" id="points" min="1000" max="40000" step="500" value="12000">
-      </div>
-      <div class="ctl" data-for="hilbert">
-        <label>Max depth <b id="depthV">9</b></label>
-        <input type="range" id="depth" min="5" max="10" step="1" value="9">
-      </div>
-      <div class="ctl" data-for="waves,contours">
-        <label>Line spacing <b id="spacingV">auto</b></label>
-        <input type="range" id="spacing" min="0" max="6" step="0.1" value="0">
-      </div>
-      <label class="check"><input type="checkbox" id="outline"> Add traced outlines</label>
-    </fieldset>
+<div class="shell">
+  <aside class="panel">
+    <div class="scroll">
 
-    <fieldset>
-      <legend>Pen &amp; page</legend>
-      <div class="ctl">
-        <label>Pen width <b id="penV">0.40 mm</b>
-          <span title="The real ink trace width. Tone is computed from this, so getting it right is what makes greys come out grey.">ⓘ</span>
-        </label>
-        <input type="range" id="pen" min="0.1" max="1.5" step="0.05" value="0.4">
-      </div>
-      <div class="row">
-        <div class="ctl">
-          <label>Paper</label>
-          <select id="paper">
-            {% for p in papers %}
-            <option value="{{p}}"{% if p=='a4' %} selected{% endif %}>{{p|upper}}</option>
-            {% endfor %}
-          </select>
+      <section>
+        <div class="sec-head"><h2>Source</h2></div>
+        <div class="drop" id="drop">
+          <div class="glyph">
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none">
+              <rect x="3" y="4" width="18" height="16" rx="2"
+                    stroke="currentColor" stroke-width="1.3"/>
+              <circle cx="8.5" cy="9.5" r="1.6" fill="currentColor"/>
+              <path d="M3.5 17l4.8-4.8 3.6 3.6 3-3 5.6 5.6"
+                    stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <div class="lead">Drop an image or <b>browse</b></div>
+          <div class="hint">png · jpeg · tiff · bmp</div>
+          <img id="thumb" alt="">
+          <div class="fname" id="fname"></div>
+          <input type="file" id="file" accept="image/*">
         </div>
-        <div class="ctl">
-          <label>Margin (mm)</label>
-          <input type="number" id="margin" value="10" min="0" max="60" step="1">
-        </div>
-      </div>
-      <label class="check"><input type="checkbox" id="portrait"> Portrait</label>
-    </fieldset>
+      </section>
 
-    <fieldset>
-      <legend>Tone</legend>
-      <div class="ctl">
-        <label>Local contrast <b id="contrastV">2.0</b></label>
-        <input type="range" id="contrast" min="0" max="6" step="0.1" value="2">
-      </div>
-      <div class="ctl">
-        <label>Detail <b id="detailV">0.45</b></label>
-        <input type="range" id="detail" min="0" max="1" step="0.05" value="0.45">
-      </div>
-      <div class="ctl">
-        <label>Exposure <b id="exposureV">0.00</b></label>
-        <input type="range" id="exposure" min="-0.4" max="0.4" step="0.02" value="0">
-      </div>
-      <div class="ctl">
-        <label>Gamma <b id="gammaV">1.00</b></label>
-        <input type="range" id="gamma" min="0.4" max="2.2" step="0.05" value="1">
-      </div>
-      <div class="ctl">
-        <label>Colour separation <b id="chromaV">0.18</b>
-          <span title="How much saturated colour darkens relative to a neutral of the same lightness. Zero collapses a red and a grey of equal lightness onto the same tone.">ⓘ</span>
-        </label>
-        <input type="range" id="chroma" min="0" max="0.6" step="0.02" value="0.18">
-      </div>
-      <div class="ctl">
-        <label>Tone response <b id="ink_responseV">0.25</b>
-          <span title="0 spreads the pen's range evenly across perceived lightness. 1 matches the photograph's real luminance — accurate, much darker, much slower.">ⓘ</span>
-        </label>
-        <input type="range" id="ink_response" min="0" max="1" step="0.05" value="0.25">
-      </div>
-      <div class="ctl">
-        <label>Resolution <b id="resolutionV">1100 px</b></label>
-        <input type="range" id="resolution" min="400" max="2200" step="50" value="1100">
-      </div>
-      <label class="check"><input type="checkbox" id="invert"> Invert</label>
-      <label class="check"><input type="checkbox" id="flip_x"> Mirror top/bottom</label>
-      <label class="check"><input type="checkbox" id="flip_y"> Mirror left/right</label>
-      <label class="check"><input type="checkbox" id="remove_bg"> Remove background (AI)</label>
-    </fieldset>
-
-    <details>
-      <summary>Pen lifts &amp; machine</summary>
-      <div>
-        <div class="ctl">
-          <label>Weld ends within <b id="mergeV">1.0 mm</b></label>
-          <input type="range" id="merge" min="0" max="4" step="0.1" value="1">
-        </div>
-        <div class="ctl">
-          <label>Bridge gaps up to <b id="bridgeV">3.0 mm</b>
-            <span title="Crosses short gaps with the pen down instead of lifting, but only where the image is dark enough to hide the extra line.">ⓘ</span>
+      <section>
+        <div class="sec-head"><h2>Engine</h2><span class="aside">pen lifts</span></div>
+        <div class="engines">
+          {% for e in engines %}
+          <label class="eng">
+            <input type="radio" name="engine" value="{{ e.id }}"
+                   {% if loop.first %}checked{% endif %}>
+            <span class="box">
+              <span class="line1">
+                <span class="nm">{{ e.label }}</span>
+                <span class="lift">{{ e.lifts }}</span>
+              </span>
+              <span class="bl">{{ e.blurb }}</span>
+            </span>
           </label>
-          <input type="range" id="bridge" min="0" max="12" step="0.5" value="3">
+          {% endfor %}
+        </div>
+
+        <div class="ctl" data-for="flowlines">
+          <label>Follow image structure <span class="v" id="coherenceV">100%</span></label>
+          <input type="range" id="coherence" min="0" max="1" step="0.05" value="1">
+        </div>
+        <div class="ctl" data-for="contours">
+          <label>Tonal levels <span class="v" id="levelsV">12</span></label>
+          <input type="range" id="levels" min="3" max="40" step="1" value="12">
+        </div>
+        <div class="ctl" data-for="tsp">
+          <label>Stipple points <span class="v" id="pointsV">12 000</span></label>
+          <input type="range" id="points" min="1000" max="40000" step="500" value="12000">
+        </div>
+        <div class="ctl" data-for="hilbert">
+          <label>Maximum depth <span class="v" id="depthV">9</span></label>
+          <input type="range" id="depth" min="5" max="10" step="1" value="9">
+        </div>
+        <div class="ctl" data-for="waves,contours">
+          <label>Line spacing <span class="v" id="spacingV">auto</span></label>
+          <input type="range" id="spacing" min="0" max="6" step="0.1" value="0">
+        </div>
+      </section>
+
+      <section>
+        <div class="sec-head"><h2>Ink</h2></div>
+        <div class="ctl">
+          <label>Amount <span class="v" id="inkV">1.00×</span></label>
+          <input type="range" id="ink" min="0.3" max="2" step="0.05" value="1">
         </div>
         <div class="ctl">
-          <label>Bridge only over ink darker than <b id="bridge_min_inkV">0.30</b></label>
-          <input type="range" id="bridge_min_ink" min="0.05" max="0.9" step="0.05" value="0.3">
+          <label>Angle in flat areas <span class="v" id="angleV">45°</span></label>
+          <input type="range" id="angle" min="0" max="180" step="5" value="45">
+        </div>
+        <label class="check"><input type="checkbox" id="outline"> Add traced outlines</label>
+      </section>
+
+      <section>
+        <div class="sec-head"><h2>Pen &amp; page</h2></div>
+        <div class="ctl">
+          <label>
+            <span>Pen width
+              <span class="tip" title="The real ink trace width, not what the barrel claims. Tone is computed from this, so it is what makes greys come out grey.">i</span>
+            </span>
+            <span class="v" id="penV">0.40 mm</span>
+          </label>
+          <input type="range" id="pen" min="0.1" max="1.5" step="0.05" value="0.4">
+        </div>
+        <div class="ctl pair">
+          <div>
+            <label style="display:block;font-size:11.5px;color:var(--ink-2);margin-bottom:6px">Paper</label>
+            <select id="paper">
+              {% for p in papers %}
+              <option value="{{ p }}"{% if p == 'a4' %} selected{% endif %}>{{ p|upper }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div>
+            <label style="display:block;font-size:11.5px;color:var(--ink-2);margin-bottom:6px">Margin, mm</label>
+            <input type="number" id="margin" value="10" min="0" max="60" step="1">
+          </div>
+        </div>
+        <label class="check" style="margin-top:9px"><input type="checkbox" id="portrait"> Portrait</label>
+      </section>
+
+      <section>
+        <div class="sec-head"><h2>Tone</h2></div>
+        <div class="ctl">
+          <label>Local contrast <span class="v" id="contrastV">2.0</span></label>
+          <input type="range" id="contrast" min="0" max="6" step="0.1" value="2">
         </div>
         <div class="ctl">
-          <label>Max ink coverage <b id="max_coverageV">0.92</b></label>
-          <input type="range" id="max_coverage" min="0.4" max="1" step="0.02" value="0.92">
+          <label>Detail <span class="v" id="detailV">0.45</span></label>
+          <input type="range" id="detail" min="0" max="1" step="0.05" value="0.45">
         </div>
-        <div class="row">
-          <div class="ctl">
-            <label>Draw feed</label>
-            <input type="number" id="feed" value="3000" step="100">
-          </div>
-          <div class="ctl">
-            <label>Travel feed</label>
-            <input type="number" id="travel_feed" value="6000" step="100">
-          </div>
+        <div class="ctl">
+          <label>Exposure <span class="v" id="exposureV">0.00</span></label>
+          <input type="range" id="exposure" min="-0.4" max="0.4" step="0.02" value="0">
         </div>
-        <label class="check"><input type="checkbox" id="show_travel"> Show pen-up moves in preview</label>
-      </div>
-    </details>
+        <div class="ctl">
+          <label>Gamma <span class="v" id="gammaV">1.00</span></label>
+          <input type="range" id="gamma" min="0.4" max="2.2" step="0.05" value="1">
+        </div>
+        <div style="display:flex;flex-direction:column;gap:1px;margin-top:11px">
+          <label class="check"><input type="checkbox" id="invert"> Invert</label>
+          <label class="check"><input type="checkbox" id="flip_x"> Mirror top / bottom</label>
+          <label class="check"><input type="checkbox" id="flip_y"> Mirror left / right</label>
+          <label class="check"><input type="checkbox" id="remove_bg"> Remove background</label>
+        </div>
+      </section>
 
-    <button class="btn" id="go" disabled>Generate G-code</button>
-    <button class="btn alt" id="dl" style="display:none">⬇ Download G-code</button>
-    <div class="msg" id="msg"></div>
-  </div>
+      <section>
+        <details>
+          <summary>Colour &amp; resolution</summary>
+          <div class="body">
+            <div class="ctl">
+              <label>
+                <span>Colour separation
+                  <span class="tip" title="How much saturated colour darkens against a neutral of the same lightness. At zero, a red and a grey that are equally light become the same tone.">i</span>
+                </span>
+                <span class="v" id="chromaV">0.18</span>
+              </label>
+              <input type="range" id="chroma" min="0" max="0.6" step="0.02" value="0.18">
+            </div>
+            <div class="ctl">
+              <label>
+                <span>Tone response
+                  <span class="tip" title="0 spreads the pen's range evenly across perceived lightness. 1 matches the photograph's real luminance — accurate, much darker, much slower to plot.">i</span>
+                </span>
+                <span class="v" id="ink_responseV">0.25</span>
+              </label>
+              <input type="range" id="ink_response" min="0" max="1" step="0.05" value="0.25">
+            </div>
+            <div class="ctl">
+              <label>Working resolution <span class="v" id="resolutionV">1100 px</span></label>
+              <input type="range" id="resolution" min="400" max="2200" step="50" value="1100">
+            </div>
+          </div>
+        </details>
+      </section>
 
-  <div class="stage" id="stage">
-    <div class="empty" id="empty">Drop in a photo and hit <b>Generate</b>.<br>
-      The preview shows exactly what the pen will lay down.</div>
-    <div class="spin" id="spin"></div>
-    <div class="stats" id="stats">
-      <div class="big" id="bigTime">—</div>
-      <div class="grid">
-        <div class="stat"><b id="sLifts">—</b>pen lifts</div>
-        <div class="stat"><b id="sDraw">—</b>drawing</div>
-        <div class="stat"><b id="sTravel">—</b>travel</div>
-        <div class="stat"><b id="sTone">—</b>tone error</div>
-        <div class="stat"><b id="sSize">—</b>on paper</div>
-        <div class="stat"><b id="sFile">—</b>G-code</div>
+      <section>
+        <details>
+          <summary>Pen lifts &amp; machine</summary>
+          <div class="body">
+            <div class="ctl">
+              <label>Weld ends within <span class="v" id="mergeV">1.0 mm</span></label>
+              <input type="range" id="merge" min="0" max="4" step="0.1" value="1">
+            </div>
+            <div class="ctl">
+              <label>
+                <span>Bridge gaps up to
+                  <span class="tip" title="Crosses short gaps with the pen down instead of lifting — but only where the image is dark enough to hide the extra line.">i</span>
+                </span>
+                <span class="v" id="bridgeV">3.0 mm</span>
+              </label>
+              <input type="range" id="bridge" min="0" max="12" step="0.5" value="3">
+            </div>
+            <div class="ctl">
+              <label>Bridge only over ink above <span class="v" id="bridge_min_inkV">0.30</span></label>
+              <input type="range" id="bridge_min_ink" min="0.05" max="0.9" step="0.05" value="0.3">
+            </div>
+            <div class="ctl">
+              <label>Maximum ink coverage <span class="v" id="max_coverageV">0.92</span></label>
+              <input type="range" id="max_coverage" min="0.4" max="1" step="0.02" value="0.92">
+            </div>
+            <div class="ctl pair">
+              <div>
+                <label style="display:block;font-size:11.5px;color:var(--ink-2);margin-bottom:6px">Draw feed</label>
+                <input type="number" id="feed" value="3000" step="100">
+              </div>
+              <div>
+                <label style="display:block;font-size:11.5px;color:var(--ink-2);margin-bottom:6px">Travel feed</label>
+                <input type="number" id="travel_feed" value="6000" step="100">
+              </div>
+            </div>
+            <label class="check" style="margin-top:9px">
+              <input type="checkbox" id="show_travel"> Show pen-up moves in preview
+            </label>
+          </div>
+        </details>
+      </section>
+
+    </div>
+
+    <div class="foot">
+      <button class="btn" id="go" disabled>Generate</button>
+      <button class="btn ghost" id="dl" style="display:none">Download G-code</button>
+      <p class="note" id="msg"></p>
+    </div>
+  </aside>
+
+  <main class="stage" id="stage">
+    <div class="bar"></div>
+    <div class="sheetwrap" id="sheetwrap">
+      <div class="blank" id="blank">
+        <svg width="46" height="46" viewBox="0 0 24 24" fill="none">
+          <rect x="3.5" y="2.5" width="17" height="19" rx="1.5"
+                stroke="currentColor" stroke-width="1.1"/>
+          <path d="M7 16.5c1.9-5.6 3.5-7.5 4.8-5.9 1.3 1.7-1.6 4.8-.3 5.7 1.2 1 3.4-1.4 5.4-7"
+                stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+        </svg>
+        <h3>No plot yet</h3>
+        <p>Drop in a photograph, pick an engine and hit Generate.
+           The preview shows exactly what the pen lays down.</p>
       </div>
     </div>
-  </div>
+
+    <div class="readout" id="readout">
+      <div class="headline">
+        <span class="big" id="bigTime">—</span>
+        <span class="cap">estimated plot time</span>
+        <span class="rule"></span>
+        <span class="cap" id="engCap"></span>
+      </div>
+      <dl class="metrics">
+        <div><dt>Pen lifts</dt><dd id="mLifts">—</dd><div class="delta" id="dLifts"></div></div>
+        <div><dt>Drawn</dt><dd id="mDraw">—</dd><div class="delta" id="dDraw"></div></div>
+        <div><dt>Travel</dt><dd id="mTravel">—</dd><div class="delta" id="dTravel"></div></div>
+        <div><dt>Tone error</dt><dd id="mTone">—</dd><div class="delta">coverage rms</div></div>
+        <div><dt>G-code</dt><dd id="mFile">—</dd><div class="delta" id="dPoints"></div></div>
+      </dl>
+    </div>
+  </main>
 </div>
 
 <script>
-const ENGINES = {{ engines|tojson }};
 const $ = id => document.getElementById(id);
-const SLIDERS = {
-  ink:v=>(+v).toFixed(2)+'×', angle:v=>v+'°', coherence:v=>Math.round(v*100)+'%',
-  levels:v=>v, points:v=>(+v).toLocaleString(), depth:v=>v,
+
+/* Slider readouts. Each also paints its own filled track, which is the only
+   way to get a progress fill in WebKit without an extra element. */
+const FMT = {
+  ink:v=>(+v).toFixed(2)+'×', angle:v=>v+'°',
+  coherence:v=>Math.round(v*100)+'%', levels:v=>v,
+  points:v=>(+v).toLocaleString('en-US').replace(/,/g,' '), depth:v=>v,
   spacing:v=>(+v===0?'auto':(+v).toFixed(1)+' mm'),
   pen:v=>(+v).toFixed(2)+' mm', contrast:v=>(+v).toFixed(1),
   detail:v=>(+v).toFixed(2), exposure:v=>(+v).toFixed(2), gamma:v=>(+v).toFixed(2),
@@ -438,24 +752,43 @@ const SLIDERS = {
   bridge:v=>(+v===0?'off':(+v).toFixed(1)+' mm'),
   bridge_min_ink:v=>(+v).toFixed(2), max_coverage:v=>(+v).toFixed(2),
 };
-for (const [id, fmt] of Object.entries(SLIDERS)) {
+for (const [id, fmt] of Object.entries(FMT)) {
   const el = $(id), out = $(id + 'V');
-  if (!el || !out) continue;
-  const sync = () => out.textContent = fmt(el.value);
-  el.addEventListener('input', sync); sync();
+  if (!el) continue;
+  const sync = () => {
+    if (out) out.textContent = fmt(el.value);
+    const pct = (el.value - el.min) / (el.max - el.min) * 100;
+    el.style.setProperty('--pct', pct + '%');
+  };
+  el.addEventListener('input', sync);
+  sync();
 }
 
-// Only show the knobs the chosen engine actually reads.
+const engineInputs = [...document.querySelectorAll('input[name=engine]')];
+const engineValue = () => engineInputs.find(r => r.checked).value;
+
+/* Only show the knobs the chosen engine actually reads. */
 function syncEngine() {
-  const name = $('engine').value;
-  const meta = ENGINES.find(e => e[0] === name);
-  $('engineNote').innerHTML = meta[1] + '<br>Pen lifts: <b>' + meta[2] + '</b>';
+  const name = engineValue();
   document.querySelectorAll('[data-for]').forEach(el => {
     el.style.display = el.dataset.for.split(',').includes(name) ? '' : 'none';
   });
 }
-$('engine').addEventListener('change', syncEngine); syncEngine();
+engineInputs.forEach(r => r.addEventListener('change', syncEngine));
+syncEngine();
 
+function syncSpec() {
+  const paper = $('paper').value.toUpperCase();
+  const orient = $('portrait').checked ? 'portrait' : 'landscape';
+  $('spec').textContent = `${paper} ${orient} · ${(+$('pen').value).toFixed(2)} mm pen`;
+}
+['paper','portrait','pen'].forEach(id => {
+  $(id).addEventListener('input', syncSpec);
+  $(id).addEventListener('change', syncSpec);
+});
+syncSpec();
+
+/* ── file handling ── */
 let file = null;
 const drop = $('drop');
 drop.addEventListener('click', () => $('file').click());
@@ -467,14 +800,19 @@ drop.addEventListener('drop', e => {
   if (e.dataTransfer.files[0]) setFile(e.dataTransfer.files[0]);
 });
 function setFile(f) {
-  file = f; $('fname').textContent = f.name; $('go').disabled = false;
+  file = f;
+  $('go').disabled = false;
   $('dl').style.display = 'none';
+  const kb = f.size > 1048576
+    ? (f.size / 1048576).toFixed(1) + ' MB' : Math.round(f.size / 1024) + ' kB';
+  $('fname').innerHTML = f.name.replace(/[<>&]/g, '') + '<small>' + kb + '</small>';
   const r = new FileReader();
-  r.onload = e => { $('thumb').src = e.target.result; $('thumb').style.display = 'block'; };
+  r.onload = e => { $('thumb').src = e.target.result; drop.classList.add('loaded'); };
   r.readAsDataURL(f);
 }
 
-const FIELDS = ['engine','ink','angle','coherence','levels','points','depth','spacing',
+/* ── generate ── */
+const FIELDS = ['ink','angle','coherence','levels','points','depth','spacing',
   'pen','paper','margin','contrast','detail','exposure','gamma','chroma',
   'ink_response','resolution','merge','bridge','bridge_min_ink','max_coverage',
   'feed','travel_feed'];
@@ -482,14 +820,15 @@ const CHECKS = ['outline','portrait','invert','flip_x','flip_y','remove_bg','sho
 
 $('go').addEventListener('click', async () => {
   if (!file) return;
-  $('go').disabled = true; $('dl').style.display = 'none';
-  $('msg').textContent = 'Working…'; $('msg').className = 'msg';
-  $('spin').style.display = 'block'; $('stats').style.display = 'none';
-  $('empty').style.display = 'none';
-  const old = $('stage').querySelector('img.out'); if (old) old.remove();
+  $('go').disabled = true;
+  $('dl').style.display = 'none';
+  $('stage').classList.add('busy');
+  $('msg').textContent = 'Working…';
+  $('msg').className = 'note';
 
   const form = new FormData();
   form.append('image', file);
+  form.append('engine', engineValue());
   FIELDS.forEach(k => form.append(k, $(k).value));
   CHECKS.forEach(k => form.append(k, $(k).checked ? '1' : '0'));
 
@@ -497,35 +836,44 @@ $('go').addEventListener('click', async () => {
     const res = await fetch('/generate', { method: 'POST', body: form });
     const data = await res.json();
     if (data.error) {
-      $('msg').textContent = data.error; $('msg').className = 'msg err';
-      $('empty').style.display = 'block';
+      $('msg').textContent = data.error;
+      $('msg').className = 'note bad';
     } else {
-      const img = document.createElement('img');
-      img.className = 'out';
-      img.src = 'data:image/png;base64,' + data.preview;
-      $('stage').insertBefore(img, $('stats'));
-      const s = data.stats;
-      $('bigTime').innerHTML = s.time + ' <small>estimated plot time</small>';
-      $('sLifts').textContent = s.lifts.toLocaleString();
-      $('sDraw').textContent = s.draw_m + ' m';
-      $('sTravel').textContent = s.travel_m + ' m';
-      $('sTone').textContent = s.tone_error === null ? '—' : s.tone_error;
-      $('sSize').textContent = s.size;
-      $('sFile').textContent = s.kb + ' kB';
-      $('stats').style.display = 'block';
-      $('msg').textContent =
-        `welded ${s.lifts_before.toLocaleString()} strokes down to ` +
-        `${s.lifts.toLocaleString()} · travel ${s.travel_raw_m} m → ${s.travel_m} m · ` +
-        `${s.points.toLocaleString()} points · ${s.elapsed}`;
+      show(data);
+      $('msg').textContent = `rendered in ${data.stats.elapsed}`;
+      $('msg').className = 'note';
       $('dl').style.display = 'block';
     }
   } catch (err) {
     $('msg').textContent = 'Request failed: ' + err.message;
-    $('msg').className = 'msg err';
+    $('msg').className = 'note bad';
   }
-  $('spin').style.display = 'none';
+  $('stage').classList.remove('busy');
   $('go').disabled = false;
 });
+
+function show(data) {
+  const s = data.stats;
+  const wrap = $('sheetwrap');
+  wrap.innerHTML =
+    '<div class="sheet"><img alt="plot preview" src="data:image/png;base64,' +
+    data.preview + '"></div><div class="caption">' + s.size + '</div>';
+
+  $('bigTime').textContent = s.time;
+  $('engCap').textContent = engineValue();
+  $('mLifts').textContent = s.lifts.toLocaleString('en-US').replace(/,/g, ' ');
+  $('dLifts').textContent = 'from ' +
+    s.lifts_before.toLocaleString('en-US').replace(/,/g, ' ') + ' strokes';
+  $('mDraw').innerHTML = s.draw_m + '<span class="unit">m</span>';
+  $('dDraw').textContent = 'pen down ' + s.draw_time;
+  $('mTravel').innerHTML = s.travel_m + '<span class="unit">m</span>';
+  $('dTravel').textContent = 'from ' + s.travel_raw_m + ' m unordered';
+  $('mTone').textContent = s.tone_error === null ? '—' : s.tone_error.toFixed(3);
+  $('mFile').innerHTML = s.kb + '<span class="unit">kB</span>';
+  $('dPoints').textContent =
+    s.points.toLocaleString('en-US').replace(/,/g, ' ') + ' points';
+  $('readout').classList.add('on');
+}
 
 $('dl').addEventListener('click', () => { window.location.href = '/download'; });
 </script>

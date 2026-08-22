@@ -197,7 +197,7 @@ def render_preview(paths, cfg: Config, dpi: int = 160,
         for p in paths:
             a = _to_canvas(pos[None, :], page, scale)[0]
             b = _to_canvas(p[:1], page, scale)[0]
-            cv2.line(canvas, tuple(a), tuple(b), (150, 195, 255),
+            cv2.line(canvas, tuple(a), tuple(b), (176, 176, 176),
                      max(1, ss), cv2.LINE_AA)
             pos = p[-1]
 
