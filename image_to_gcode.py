@@ -61,6 +61,10 @@ def build_parser() -> argparse.ArgumentParser:
                    help="paper size")
     g.add_argument("--portrait", action="store_true", help="portrait orientation")
     g.add_argument("--margin", type=float, default=10.0, metavar="MM")
+    g.add_argument("--rotate-output", default="auto",
+                   choices=["auto", "off", "ccw", "cw"],
+                   help="turn the G-code for a landscape-only bed; auto turns "
+                        "portrait pages only. The preview stays as composed")
     g.add_argument("--max-coverage", type=float, default=0.92, metavar="F",
                    help="darkest ink coverage the pen can usefully reach")
 
@@ -114,6 +118,7 @@ def config_from_args(args) -> Config:
     cfg.page.paper = args.paper
     cfg.page.portrait = args.portrait
     cfg.page.margin_mm = args.margin
+    cfg.page.rotate_output = args.rotate_output
     cfg.page.resolve()
 
     cfg.pen.width_mm = args.pen

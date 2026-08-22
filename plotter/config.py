@@ -27,6 +27,10 @@ class PageConfig:
     #: Machine Y axis grows downward as negative values (GRBL pen-plotter
     #: convention used by the AX4 firmware). Set False for positive-Y machines.
     negative_y: bool = True
+    #: Beds that are wider than they are tall cannot draw a portrait page, so
+    #: the emitted G-code is turned 90 degrees and the paper turned to match.
+    #: "auto" rotates only portrait pages. The preview stays as composed.
+    rotate_output: str = "auto"      # auto | off | ccw | cw
 
     def resolve(self) -> "PageConfig":
         if self.paper in PAPER_SIZES:

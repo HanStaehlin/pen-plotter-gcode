@@ -45,6 +45,7 @@ def config_from_form() -> Config:
     cfg.page.paper = request.form.get("paper", "a4")
     cfg.page.portrait = _b("portrait")
     cfg.page.margin_mm = _f("margin", 10)
+    cfg.page.rotate_output = "auto" if _b("rotate_out") else "off"
     cfg.page.resolve()
 
     cfg.pen.width_mm = _f("pen", 0.4)
@@ -144,6 +145,7 @@ def generate():
             "kb": round(len(_last["gcode"]) / 1024),
             "tone_error": (None if s["tone_error"] is None
                            else round(s["tone_error"], 3)),
+            "rotated": s["rotated_for_bed"],
             "elapsed": f"{s['elapsed_s']:.1f}s",
         },
     )
@@ -602,6 +604,11 @@ HTML = r"""
           </div>
         </div>
         <label class="check" style="margin-top:9px"><input type="checkbox" id="portrait"> Portrait</label>
+        <label class="check" data-when="portrait">
+          <input type="checkbox" id="rotate_out" checked>
+          Turn G-code to landscape
+          <span class="tip" title="Plotter beds are wider than they are tall, so a portrait page cannot be drawn as composed. The G-code is turned 90 degrees anticlockwise; turn the paper the same way and the drawing comes out upright. The preview stays as composed.">i</span>
+        </label>
       </section>
 
       <section>
@@ -793,6 +800,14 @@ function syncSpec() {
   const orient = $('portrait').checked ? 'portrait' : 'landscape';
   $('spec').textContent = `${paper} ${orient} · ${(+$('pen').value).toFixed(2)} mm pen`;
 }
+function syncPortrait() {
+  const on = $('portrait').checked;
+  document.querySelectorAll('[data-when=portrait]').forEach(
+    el => el.style.display = on ? '' : 'none');
+}
+$('portrait').addEventListener('change', syncPortrait);
+syncPortrait();
+
 ['paper','portrait','pen'].forEach(id => {
   $(id).addEventListener('input', syncSpec);
   $(id).addEventListener('change', syncSpec);
@@ -828,7 +843,8 @@ const FIELDS = ['ink','angle','coherence','levels','points','depth','coarsest',
   'pen','paper','margin','contrast','detail','exposure','gamma','chroma',
   'ink_response','resolution','merge','bridge','bridge_min_ink','max_coverage',
   'feed','travel_feed'];
-const CHECKS = ['outline','portrait','invert','flip_x','flip_y','remove_bg','show_travel'];
+const CHECKS = ['outline','portrait','rotate_out','invert','flip_x','flip_y',
+  'remove_bg','show_travel'];
 
 $('go').addEventListener('click', async () => {
   if (!file) return;
@@ -872,7 +888,8 @@ function show(data) {
     data.preview + '"></div><div class="caption">' + s.size + '</div>';
 
   $('bigTime').textContent = s.time;
-  $('engCap').textContent = engineValue();
+  $('engCap').textContent = engineValue() +
+    (s.rotated ? ' · turned to landscape' : '');
   $('mLifts').textContent = s.lifts.toLocaleString('en-US').replace(/,/g, ' ');
   $('dLifts').textContent = 'from ' +
     s.lifts_before.toLocaleString('en-US').replace(/,/g, ' ') + ' strokes';

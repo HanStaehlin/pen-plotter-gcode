@@ -7,7 +7,7 @@ from dataclasses import dataclass, field as dc_field
 
 import numpy as np
 
-from . import engines, gcode, paths as P, tone
+from . import engines, gcode, paths as P, tone, transform
 from .config import Config
 from .geometry import Canvas
 
@@ -21,8 +21,35 @@ class Result:
     coverage: np.ndarray                 # ink target that was aimed at
     stats: dict = dc_field(default_factory=dict)
 
+    def output_paths(self):
+        """Paths as the machine will receive them, turned if the bed needs it.
+
+        The rotation lives here rather than in the drawing stage so the
+        preview keeps showing the picture the way it was composed; only what
+        goes down the wire is turned.
+        """
+        page = self.config.page
+        mode = (page.rotate_output or "auto").lower()
+        if mode == "off":
+            return self.paths, ""
+        if mode == "auto":
+            if page.height_mm <= page.width_mm:
+                return self.paths, ""
+            clockwise = False
+        else:
+            clockwise = mode == "cw"
+        turned, w, h = transform.rotate_paths(
+            self.paths, page.width_mm, page.height_mm, clockwise)
+        note = (f"rotated 90 deg {'clockwise' if clockwise else 'anticlockwise'} "
+                f"for a landscape bed; page {w:.0f} x {h:.0f} mm — "
+                f"turn the paper the same way")
+        return turned, note
+
     def gcode(self, comment: str = "") -> str:
-        return gcode.write(self.paths, self.config, comment)
+        paths, note = self.output_paths()
+        if note:
+            comment = (comment + "\n" + note) if comment else note
+        return gcode.write(paths, self.config, comment)
 
     def preview(self, dpi: int = 160, show_travel: bool = False) -> np.ndarray:
         return gcode.render_preview(self.paths, self.config, dpi=dpi,
@@ -88,6 +115,11 @@ def convert(img_rgb: np.ndarray, cfg: Config, progress=None) -> Result:
         "tone_error": float(ink.coverage_error()) if ink is not None else None,
         "elapsed_s": time.perf_counter() - t_start,
     })
+
+    rotated = (cfg.page.rotate_output or "auto").lower() != "off" and (
+        cfg.page.height_mm > cfg.page.width_mm
+        or (cfg.page.rotate_output or "").lower() in ("cw", "ccw"))
+    stats["rotated_for_bed"] = bool(rotated)
 
     return Result(paths=mm_paths, canvas=canvas, config=cfg,
                   value=value, coverage=coverage, stats=stats)

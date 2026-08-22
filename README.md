@@ -110,6 +110,26 @@ move. Feed rate alone is useless (a machine at 400 mm/s² never reaches
 just as wrong — it would price the Hilbert curve, which is nothing but corners,
 at triple its real cost.
 
+### Portrait plots
+
+A plotter bed that is wider than it is tall cannot draw a portrait page, so
+portrait output is turned 90 degrees anticlockwise before it is written; turn
+the paper the same way and the drawing comes out upright. The preview keeps
+showing the picture as composed — only what goes down the wire is turned.
+`--rotate-output off` disables it.
+
+To turn a G-code file that already exists:
+
+```
+python3 gcode_rotate.py drawing.gcode          # -> drawing_landscape.gcode
+```
+
+This is a rotation, not a transpose. Swapping X and Y reflects the drawing
+about the diagonal and comes out mirrored — readable enough on an abstract
+pattern that the mistake reaches the paper, and obvious the moment there is
+lettering or a face in the picture. A rotation swaps the axes *and* flips the
+sign of one of them.
+
 ## Notes
 
 - **Pen width is the important setting.** It is what calibrates tone. Measure
