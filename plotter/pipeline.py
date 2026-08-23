@@ -65,24 +65,29 @@ def convert(img_rgb: np.ndarray, cfg: Config, progress=None) -> Result:
     t_start = time.perf_counter()
 
     note("preparing tone")
-    value, coverage = tone.prepare(img_rgb, cfg.tone, cfg.pen)
+    # The canvas is built first so tone can be told the working scale: how
+    # thin "thin detail" is only means anything in millimetres on paper.
+    w_px, h_px = tone.output_size(img_rgb, cfg.tone.resolution)
+    canvas = Canvas(w_px, h_px, cfg.page)
+    value, coverage, features = tone.prepare(img_rgb, cfg.tone, cfg.pen,
+                                             canvas.px_per_mm)
     if cfg.render.ink_scale != 1.0:
         coverage = np.clip(coverage * cfg.render.ink_scale,
                            0.0, cfg.pen.max_coverage)
         coverage[coverage < cfg.pen.min_coverage] = 0.0
 
-    canvas = Canvas(value.shape[1], value.shape[0], cfg.page)
-
     note(f"drawing ({cfg.render.engine})")
     engine = engines.get(cfg.render.engine)
-    produced = engine(value, coverage, canvas, cfg.pen, cfg.render)
+    produced = engine(value, coverage, canvas, cfg.pen, cfg.render,
+                      features=features)
     px_paths, ink = produced if isinstance(produced, tuple) else (produced, None)
 
     if cfg.render.outline and cfg.render.engine not in ("outline", "lineart"):
         note("tracing outlines")
         px_paths = list(px_paths) + list(engines.outline.generate(
             value, coverage, canvas, cfg.pen, cfg.render,
-            strength=cfg.render.outline_strength))
+            strength=cfg.render.outline_strength,
+            features=features, feature_min=cfg.render.outline_feature_min))
 
     mm_paths = canvas.paths_to_mm(px_paths)
     raw_count = len(mm_paths)

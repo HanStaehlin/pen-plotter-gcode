@@ -61,6 +61,7 @@ def config_from_form() -> Config:
     cfg.tone.exposure = _f("exposure", 0.0)
     cfg.tone.chroma_weight = _f("chroma", 0.18)
     cfg.tone.ink_response = _f("ink_response", 0.25)
+    cfg.tone.feature_gain = _f("feature_gain", 0.55)
     cfg.tone.denoise = _f("denoise", 0.0)
     cfg.tone.invert = _b("invert")
     cfg.tone.flip_x = _b("flip_x")
@@ -72,6 +73,11 @@ def config_from_form() -> Config:
     cfg.render.spacing_mm = _f("spacing", 0.0)
     cfg.render.flow_coherence = _f("coherence", 1.0)
     cfg.render.outline = _b("outline")
+    cfg.render.outline_strength = _f("outline_strength", 0.6)
+    cfg.render.hatch_layers = _i("hatch_layers", 3)
+    cfg.render.hatch_share = _f("hatch_share", 0.30)
+    cfg.render.hilbert_smooth = _f("hilbert_smooth", 0.35)
+    cfg.render.hilbert_detail = _f("hilbert_detail", 1.2)
     cfg.render.contour_levels = _i("levels", 12)
     cfg.render.tsp_points = _i("points", 12000)
     cfg.render.hilbert_max_depth = _i("depth", 9)
@@ -538,6 +544,32 @@ HTML = r"""
           <label>Follow image structure <span class="v" id="coherenceV">100%</span></label>
           <input type="range" id="coherence" min="0" max="1" step="0.05" value="1">
         </div>
+        <div class="ctl" data-for="crosshatch">
+          <label>Hatch directions <span class="v" id="hatch_layersV">3</span></label>
+          <input type="range" id="hatch_layers" min="1" max="5" step="1" value="3">
+        </div>
+        <div class="ctl" data-for="crosshatch">
+          <label>
+            <span>Tone per direction
+              <span class="tip" title="How much darkness one angle may supply before the next is laid across it. Lower it and cross-hatching starts earlier, so more of the picture shows two or three directions.">i</span>
+            </span>
+            <span class="v" id="hatch_shareV">0.30</span>
+          </label>
+          <input type="range" id="hatch_share" min="0.1" max="0.7" step="0.02" value="0.30">
+        </div>
+        <div class="ctl" data-for="hilbert">
+          <label>
+            <span>Corner rounding
+              <span class="tip" title="A plotter nearly stops at every square corner, and a Hilbert curve is nothing but corners. Rounding them plots faster and softens the maze into something closer to drawn line.">i</span>
+            </span>
+            <span class="v" id="hilbert_smoothV">0.35</span>
+          </label>
+          <input type="range" id="hilbert_smooth" min="0" max="0.5" step="0.05" value="0.35">
+        </div>
+        <div class="ctl" data-for="hilbert">
+          <label>Detail depth <span class="v" id="hilbert_detailV">1.2</span></label>
+          <input type="range" id="hilbert_detail" min="0" max="2.5" step="0.1" value="1.2">
+        </div>
         <div class="ctl" data-for="contours">
           <label>Tonal levels <span class="v" id="levelsV">12</span></label>
           <input type="range" id="levels" min="3" max="40" step="1" value="12">
@@ -575,7 +607,14 @@ HTML = r"""
           <label>Angle in flat areas <span class="v" id="angleV">45°</span></label>
           <input type="range" id="angle" min="0" max="180" step="5" value="45">
         </div>
-        <label class="check"><input type="checkbox" id="outline"> Add traced outlines</label>
+        <label class="check">
+          <input type="checkbox" id="outline" checked> Draw landmark lines
+          <span class="tip" title="Traces the thin dark lines a person would draw — a lid line, a lip seam, a nostril — on top of the shading. On a portrait this is what makes an eye read as an eye rather than a dark patch.">i</span>
+        </label>
+        <div class="ctl" data-when="outline">
+          <label>Landmark strength <span class="v" id="outline_strengthV">0.60</span></label>
+          <input type="range" id="outline_strength" min="0.1" max="1" step="0.05" value="0.6">
+        </div>
       </section>
 
       <section>
@@ -620,6 +659,15 @@ HTML = r"""
         <div class="ctl">
           <label>Detail <span class="v" id="detailV">0.45</span></label>
           <input type="range" id="detail" min="0" max="1" step="0.05" value="0.45">
+        </div>
+        <div class="ctl">
+          <label>
+            <span>Fine detail
+              <span class="tip" title="Pushes thin dark structure toward black. Without it a lip seam carries so little area that the surrounding skin tone swallows its ink budget and it disappears.">i</span>
+            </span>
+            <span class="v" id="feature_gainV">0.55</span>
+          </label>
+          <input type="range" id="feature_gain" min="0" max="1" step="0.05" value="0.55">
         </div>
         <div class="ctl">
           <label>Exposure <span class="v" id="exposureV">0.00</span></label>
@@ -762,6 +810,9 @@ const FMT = {
   coherence:v=>Math.round(v*100)+'%', levels:v=>v,
   points:v=>(+v).toLocaleString('en-US').replace(/,/g,' '),
   depth:v=>'depth '+v, coarsest:v=>(+v).toFixed(1)+' mm',
+  hatch_layers:v=>v, hatch_share:v=>(+v).toFixed(2),
+  hilbert_smooth:v=>(+v).toFixed(2), hilbert_detail:v=>(+v).toFixed(1),
+  feature_gain:v=>(+v).toFixed(2), outline_strength:v=>(+v).toFixed(2),
   spacing:v=>(+v===0?'auto':(+v).toFixed(1)+' mm'),
   pen:v=>(+v).toFixed(2)+' mm', contrast:v=>(+v).toFixed(1),
   detail:v=>(+v).toFixed(2), exposure:v=>(+v).toFixed(2), gamma:v=>(+v).toFixed(2),
@@ -800,13 +851,15 @@ function syncSpec() {
   const orient = $('portrait').checked ? 'portrait' : 'landscape';
   $('spec').textContent = `${paper} ${orient} · ${(+$('pen').value).toFixed(2)} mm pen`;
 }
-function syncPortrait() {
-  const on = $('portrait').checked;
-  document.querySelectorAll('[data-when=portrait]').forEach(
-    el => el.style.display = on ? '' : 'none');
+function syncWhen() {
+  document.querySelectorAll('[data-when]').forEach(el => {
+    const src = document.getElementById(el.dataset.when);
+    el.style.display = src && src.checked ? '' : 'none';
+  });
 }
-$('portrait').addEventListener('change', syncPortrait);
-syncPortrait();
+['portrait', 'outline'].forEach(id =>
+  $(id).addEventListener('change', syncWhen));
+syncWhen();
 
 ['paper','portrait','pen'].forEach(id => {
   $(id).addEventListener('input', syncSpec);
@@ -839,7 +892,8 @@ function setFile(f) {
 
 /* ── generate ── */
 const FIELDS = ['ink','angle','coherence','levels','points','depth','coarsest',
-  'spacing',
+  'spacing','hatch_layers','hatch_share','hilbert_smooth','hilbert_detail',
+  'feature_gain','outline_strength',
   'pen','paper','margin','contrast','detail','exposure','gamma','chroma',
   'ink_response','resolution','merge','bridge','bridge_min_ink','max_coverage',
   'feed','travel_feed'];

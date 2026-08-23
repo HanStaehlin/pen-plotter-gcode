@@ -24,7 +24,7 @@ except ImportError:                                   # pragma: no cover
 from ..geometry import InkBuffer
 
 
-def generate(value, coverage, canvas, pen, cfg):
+def generate(value, coverage, canvas, pen, cfg, features=None):
     h, w = coverage.shape
     px_per_mm = canvas.px_per_mm
     pen_px = max(0.4, pen.width_mm * px_per_mm)
@@ -32,14 +32,14 @@ def generate(value, coverage, canvas, pen, cfg):
     n_points = int(np.clip(cfg.tsp_points, 100, 60000))
     pts = _stipple(coverage, n_points, int(cfg.tsp_relax))
     if len(pts) < 4:
-        return [], InkBuffer(coverage, pen_px)
+        return [], InkBuffer(coverage, pen_px, features=features)
 
     tour = _refine(pts, _greedy_tour(pts))
 
     path = pts[tour].astype(np.float32)
     paths = _cut_long_jumps(path)
 
-    ink = InkBuffer(coverage, pen_px)
+    ink = InkBuffer(coverage, pen_px, features=features)
     for p in paths:
         ink.deposit(p)
     return paths, ink

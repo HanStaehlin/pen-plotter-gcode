@@ -7,13 +7,16 @@ the drawing actually reproduces the requested tone.
 
 from __future__ import annotations
 
-from . import contours, flowlines, hilbert, outline, tsp, waves
+from . import contours, crosshatch, flowlines, hilbert, outline, tsp, waves
 
 #: name -> (callable, human description, roughly how continuous it is)
 ENGINES = {
     "flowlines": (flowlines.generate,
                   "Flow lines — strokes follow the image's own structure",
                   "many long strokes"),
+    "crosshatch": (crosshatch.generate,
+                   "Cross-hatch — layered engraving that follows the form",
+                   "many medium strokes"),
     "waves": (waves.generate,
               "Waves — one serpentine sweep, tone from how far it detours",
               "near-continuous"),
@@ -42,5 +45,5 @@ def get(name: str):
     return ENGINES[name][0]
 
 
-__all__ = ["ENGINES", "get", "contours", "flowlines", "hilbert", "outline",
-           "tsp", "waves"]
+__all__ = ["ENGINES", "get", "contours", "crosshatch", "flowlines",
+           "hilbert", "outline", "tsp", "waves"]

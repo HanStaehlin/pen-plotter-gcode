@@ -39,8 +39,19 @@ def build_parser() -> argparse.ArgumentParser:
                    help="stroke angle in flat areas, degrees")
     g.add_argument("--spacing", type=float, default=0.0, metavar="MM",
                    help="engine line spacing; 0 derives it from the pen width")
-    g.add_argument("--outline", action="store_true",
-                   help="trace outlines on top of the shading")
+    g.add_argument("--outline", action=argparse.BooleanOptionalAction,
+                   default=True,
+                   help="trace landmark lines on top of the shading")
+    g.add_argument("--outline-strength", type=float, default=0.6, metavar="F")
+    g.add_argument("--hatch-layers", type=int, default=3,
+                   help="crosshatch: how many directions may stack")
+    g.add_argument("--hatch-share", type=float, default=0.30, metavar="F",
+                   help="crosshatch: coverage one direction may supply "
+                        "before the next is laid across it")
+    g.add_argument("--hilbert-smooth", type=float, default=0.35, metavar="F",
+                   help="hilbert: round the right angles; plots faster")
+    g.add_argument("--hilbert-detail", type=float, default=1.2, metavar="F",
+                   help="hilbert: extra subdivision where fine detail lives")
     g.add_argument("--flow-coherence", type=float, default=1.0, metavar="F",
                    help="flowlines: 0 ignores image structure, 1 follows it")
     g.add_argument("--levels", type=int, default=12,
@@ -78,6 +89,9 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--gamma", type=float, default=1.0,
                    help="below 1 lightens midtones, above 1 darkens")
     g.add_argument("--exposure", type=float, default=0.0, help="-1 to 1")
+    g.add_argument("--feature-gain", type=float, default=0.55, metavar="F",
+                   help="push thin dark detail (lash lines, lip seams) "
+                        "toward black so tone does not swallow it")
     g.add_argument("--chroma", type=float, default=0.18, metavar="F",
                    help="how much saturated colour darkens against neutrals")
     g.add_argument("--ink-response", type=float, default=0.25, metavar="F",
@@ -134,6 +148,7 @@ def config_from_args(args) -> Config:
     cfg.tone.gamma = args.gamma
     cfg.tone.exposure = args.exposure
     cfg.tone.chroma_weight = args.chroma
+    cfg.tone.feature_gain = args.feature_gain
     cfg.tone.ink_response = args.ink_response
     cfg.tone.denoise = args.denoise
     cfg.tone.invert = args.invert
@@ -145,6 +160,11 @@ def config_from_args(args) -> Config:
     cfg.render.angle_deg = args.angle
     cfg.render.spacing_mm = args.spacing
     cfg.render.outline = args.outline
+    cfg.render.outline_strength = args.outline_strength
+    cfg.render.hatch_layers = args.hatch_layers
+    cfg.render.hatch_share = args.hatch_share
+    cfg.render.hilbert_smooth = args.hilbert_smooth
+    cfg.render.hilbert_detail = args.hilbert_detail
     cfg.render.flow_coherence = args.flow_coherence
     cfg.render.contour_levels = args.levels
     cfg.render.tsp_points = args.points

@@ -23,6 +23,7 @@ python3 image_to_gcode.py --list-engines
 | Engine      | Look                                              | Pen lifts        |
 |-------------|---------------------------------------------------|------------------|
 | `flowlines` | Strokes follow the image's own structure          | many long strokes|
+| `crosshatch`| Layered engraving; directions stack as tone darkens| many medium      |
 | `waves`     | One serpentine sweep; tone from how far it detours| near-continuous  |
 | `hilbert`   | A single space-filling curve, adaptive depth      | one curve        |
 | `tsp`       | Stipple density joined into one continuous tour   | one tour         |
@@ -109,6 +110,38 @@ move. Feed rate alone is useless (a machine at 400 mm/s² never reaches
 3000 mm/min over a 2 mm stroke), and assuming a dead stop at every vertex is
 just as wrong — it would price the Hilbert curve, which is nothing but corners,
 at triple its real cost.
+
+### Faces
+
+Tone alone does not draw a face. A lip seam is 0.8 mm tall and carries almost
+no area, so an engine chasing coverage averages it into the surrounding skin
+and it disappears — the picture comes out as a topographic map of a face
+rather than a drawing of one. Three things fix that, and all are on by
+default:
+
+- **Fine detail** (`--feature-gain`) finds thin *dark* structure and pushes it
+  toward black. Being thin and dark is not enough on its own — fabric weave
+  and foliage are too — so the response is measured against its own local
+  average, which leaves isolated structure standing and cancels anything that
+  repeats.
+- The ink accumulator **narrows its measuring band** where that structure
+  lives, so a feature is judged on its own tone instead of the skin around it.
+- **Landmark lines** (`--outline`) trace the lines a person would draw — lid
+  line, lip seam, nostril — on top of the shading.
+
+For portraits `crosshatch` beats `flowlines`. Flow lines follow the image's
+own contours, which on a face means concentric rings around every tonal blob;
+hatching lays parallel strokes that describe form without ringing features.
+
+### Hilbert variants
+
+Corner rounding (`--hilbert-smooth`) is worth having on. A plotter nearly
+stops at a square corner and a Hilbert curve is nothing but corners, so
+rounding them plots about 19% faster, reproduces tone slightly *better*, and
+softens the hard maze into something closer to drawn line.
+
+`--hilbert-detail` adds subdivision levels where fine structure lives, so an
+eye is not drawn at the same pitch as the flat cheek beside it.
 
 ### Portrait plots
 

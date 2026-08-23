@@ -17,28 +17,45 @@ from .. import flow
 from ..geometry import InkBuffer
 
 
-def generate(value, coverage, canvas, pen, cfg, field=None):
+def build_field(value, cfg):
+    """The orientation field the strokes will follow."""
+    return flow.compute(value,
+                        sigma_grad=1.2,
+                        sigma_tensor=max(0.8, cfg.flow_smooth),
+                        coherence_mix=cfg.flow_coherence,
+                        base_angle_deg=cfg.angle_deg)
+
+
+def generate(value, coverage, canvas, pen, cfg, field=None, features=None):
     px_per_mm = canvas.px_per_mm
     pen_px = max(0.4, pen.width_mm * px_per_mm)
-
     if field is None:
-        field = flow.compute(value,
-                             sigma_grad=1.2,
-                             sigma_tensor=max(0.8, cfg.flow_smooth),
-                             coherence_mix=cfg.flow_coherence,
-                             base_angle_deg=cfg.angle_deg)
+        field = build_field(value, cfg)
 
     # Cap how sparse shading may get: past ~26 pen widths a "line every
     # 10 mm" stops reading as tone and starts reading as a stray stroke.
-    ink = InkBuffer(coverage, pen_px, max_spacing_px=26.0)
+    ink = InkBuffer(coverage, pen_px, max_spacing_px=26.0, features=features)
+    paths = fill(field, ink, canvas, pen, cfg)
+    return paths, ink
 
-    step = max(0.6, min(1.6, pen_px * 0.5))
+
+def fill(field, ink, canvas, pen, cfg, seed=12345):
+    """Lay strokes along ``field`` until the ink accumulator is satisfied.
+
+    Shared with the cross-hatch engine, which runs this once per angle with a
+    rotated field and a ceiling on how much tone the pass may take.
+    """
+    px_per_mm = canvas.px_per_mm
+    # Image extent in pixels, recovered from the accumulator's own geometry.
+    w = int(round(ink.bw * ink.pen_px))
+    h = int(round(ink.bh * ink.pen_px))
+
+    step = max(0.6, min(1.6, ink.pen_px * 0.5))
     min_steps = max(2, int(cfg.stroke_min_mm * px_per_mm / step))
     max_steps = max(min_steps + 1, int(cfg.stroke_max_mm * px_per_mm / step))
 
     sampler = _Sampler(field)
-    h, w = value.shape
-    rng = np.random.default_rng(12345)
+    rng = np.random.default_rng(seed)
 
     paths: list[np.ndarray] = []
     # A stroke deposits very nearly a full `target` of coverage where it
@@ -58,6 +75,8 @@ def generate(value, coverage, canvas, pen, cfg, field=None):
             # Re-checked here because earlier strokes in this very pass may
             # already have covered this cell.
             tgt = ink.target[by, bx]
+            if ink.cap is not None and tgt > ink.cap:
+                tgt = ink.cap
             if tgt - ink.ink[by, bx] < max(floor, seed_frac * tgt):
                 continue
             sx = (bx + rng.random()) * ink.pen_px
@@ -76,7 +95,7 @@ def generate(value, coverage, canvas, pen, cfg, field=None):
         if drawn == 0:
             break
 
-    return paths, ink
+    return paths
 
 
 def _seed_order(ink: InkBuffer, seed_frac: float, floor: float, rng) -> np.ndarray:

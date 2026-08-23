@@ -61,7 +61,8 @@ class InkBuffer:
     """
 
     def __init__(self, coverage: np.ndarray, pen_px: float,
-                 max_spacing_px: float = 30.0):
+                 max_spacing_px: float = 30.0,
+                 features: np.ndarray | None = None):
         h, w = coverage.shape
         self.pen_px = max(0.35, float(pen_px))
         self.scale = 1.0 / self.pen_px               # image px -> buffer px
@@ -74,6 +75,18 @@ class InkBuffer:
         self.ink = np.zeros((self.bh, self.bw), dtype=np.float32)
         self._scratch = np.zeros((self.bh, self.bw), dtype=np.float32)
         self.max_width = max(3.0, 2.0 * float(max_spacing_px))
+        #: Optional ceiling on how much coverage the *current* pass may fill.
+        #: Cross-hatching uses it to hand the remaining tone to the next angle
+        #: instead of letting one direction darken everything on its own.
+        self.cap: float | None = None
+        # Acuity: how tightly tone should be measured here.  1 means "this is
+        # a thin dark landmark, judge it on its own"; 0 means "ordinary
+        # shading, average it over the full spacing".
+        if features is None:
+            self.acuity = None
+        else:
+            self.acuity = cv2.resize(features, (self.bw, self.bh),
+                                     interpolation=cv2.INTER_AREA).astype(np.float32)
 
     def deficit(self, x_px: float, y_px: float) -> float:
         """Target minus deposited at an image-pixel location."""
@@ -81,7 +94,10 @@ class InkBuffer:
         by = int(y_px * self.scale)
         if bx < 0 or by < 0 or bx >= self.bw or by >= self.bh:
             return -1.0
-        return float(self.target[by, bx] - self.ink[by, bx])
+        target = self.target[by, bx]
+        if self.cap is not None and target > self.cap:
+            target = self.cap
+        return float(target - self.ink[by, bx])
 
     def wants_ink(self, x_px: float, y_px: float,
                   frac: float, floor: float) -> bool:
@@ -91,10 +107,13 @@ class InkBuffer:
         if bx < 0 or by < 0 or bx >= self.bw or by >= self.bh:
             return False
         target = self.target[by, bx]
+        if self.cap is not None and target > self.cap:
+            target = self.cap
         return bool(target - self.ink[by, bx] > max(floor, frac * target))
 
     def deficit_map(self) -> np.ndarray:
-        return self.target - self.ink
+        target = self.target if self.cap is None else np.minimum(self.target, self.cap)
+        return target - self.ink
 
     def deposit(self, pts_px: np.ndarray) -> None:
         """Record a drawn polyline as local ink density.
@@ -121,6 +140,13 @@ class InkBuffer:
         # midpoint between two strokes reads as under-inked, which pulls in a
         # third stroke, and tone comes out two to three times too dark.
         width = min(self.max_width, 2.0 * spacing)
+        if self.acuity is not None:
+            # A feature narrower than the band it is measured over gets its
+            # ink budget spread into the skin around it and disappears.  A
+            # lip seam is 0.8 mm tall and the band judging it is 2 mm wide,
+            # so it loses every time.  Tighten the band where detail lives.
+            a = float(np.median(self.acuity[by, bx]))
+            width = max(1.5, width * (1.0 - 0.85 * a))
 
         pad = int(width) + 2
         x0 = max(0, int(pts[:, 0].min()) - pad)

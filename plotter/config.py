@@ -95,6 +95,12 @@ class ToneConfig:
     #: 0 = spend the pen's range evenly across perceptual lightness,
     #: 1 = match the photograph's actual luminance (much darker, much slower).
     ink_response: float = 0.25
+    #: Thin dark structures - an eyelash line, the seam between lips, a
+    #: nostril - carry almost no area, so a tone-driven engine averages them
+    #: into the skin around them and they vanish.  This pushes them toward
+    #: black and tells the engines to measure tone locally where they are.
+    feature_gain: float = 0.55
+    feature_mm: float = 0.7        # how thin "thin" is, on paper
     exposure: float = 0.0          # -1..1 additive after normalisation
     invert: bool = False
     flip_x: bool = False
@@ -140,14 +146,35 @@ class RenderConfig:
     #: a hole in the drawing.
     hilbert_coarsest_mm: float = 4.0
     hilbert_max_depth: int = 9
+    #: Round the curve's right angles. 0 keeps the hard maze look; ~0.35
+    #: turns every corner into a short arc, which plots markedly faster
+    #: because a plotter has to slow almost to a stop for a square corner.
+    hilbert_smooth: float = 0.35
+    #: Extra subdivision levels where fine detail lives, so an eye is not
+    #: drawn at the same pitch as the flat cheek beside it.
+    hilbert_detail: float = 1.2
     # tsp
     tsp_points: int = 12000
     tsp_relax: int = 30
+    # crosshatch
+    hatch_layers: int = 3          # how many directions may stack
+    hatch_spread_deg: float = 58.0  # angle between successive directions
+    #: Coverage one direction may contribute before the next takes over.
+    hatch_share: float = 0.30
+    #: Cross-hatch follows the form only faintly by default.  Full coherence
+    #: makes every tonal blob into concentric rings, which on a face reads as
+    #: contour spaghetti rather than as a drawing.
+    hatch_coherence: float = 0.20
     # contours
     contour_levels: int = 12
     # overlay
-    outline: bool = False          # add traced outlines on top
-    outline_strength: float = 0.5
+    #: Trace landmark lines on top of the shading.  On a portrait this is
+    #: what makes an eye read as an eye rather than as a dark patch.
+    outline: bool = True
+    outline_strength: float = 0.6
+    #: Overlay strokes must sit on thin dark structure this strong to be
+    #: kept, which draws the landmarks without chasing every texture edge.
+    outline_feature_min: float = 0.35
 
 
 @dataclass

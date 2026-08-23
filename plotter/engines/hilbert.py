@@ -17,7 +17,7 @@ import numpy as np
 from ..geometry import InkBuffer
 
 
-def generate(value, coverage, canvas, pen, cfg):
+def generate(value, coverage, canvas, pen, cfg, features=None):
     h, w = coverage.shape
     px_per_mm = canvas.px_per_mm
     pen_px = max(0.4, pen.width_mm * px_per_mm)
@@ -38,7 +38,7 @@ def generate(value, coverage, canvas, pen, cfg):
     # Blank areas narrower than a few cells are not worth lifting for.
     white_px = 3.0 * coarsest_px
     depth = _leaf_depths(coverage, side, n, min_depth, max_depth, pen_px,
-                         white_px)
+                         white_px, features, cfg.hilbert_detail)
 
     d = np.arange(n * n, dtype=np.int64)
     hx, hy = _hilbert_d2xy(n, d)
@@ -86,14 +86,58 @@ def generate(value, coverage, canvas, pen, cfg):
     if len(run) >= 2:
         paths.append(np.asarray(run, dtype=np.float32))
 
-    ink = InkBuffer(coverage, pen_px)
+    if cfg.hilbert_smooth > 0:
+        cell_px = side / (1 << max_depth)
+        paths = [_round_corners(p, cfg.hilbert_smooth, cell_px) for p in paths]
+
+    ink = InkBuffer(coverage, pen_px, features=features)
     for p in paths:
         ink.deposit(p)
     return paths, ink
 
 
+def _round_corners(path: np.ndarray, factor: float, cell_px: float,
+                   segments: int = 3) -> np.ndarray:
+    """Replace the curve's right angles with short arcs.
+
+    A Hilbert curve is nothing but 90-degree corners, and a corner is where a
+    plotter has to stop: junction speed falls off with the turn, so a square
+    corner costs roughly four times the dwell of a gentle one.  Cutting each
+    corner into a few shallow turns keeps the machine moving and softens the
+    hard maze texture into something closer to drawn line.
+    """
+    n = len(path)
+    if n < 3 or factor <= 0:
+        return path
+    f = float(np.clip(factor, 0.0, 0.5))
+    p = np.asarray(path, dtype=np.float32)
+
+    seg = np.diff(p, axis=0)
+    length = np.hypot(seg[:, 0], seg[:, 1])
+    # Corner radius is capped by the shorter of the two edges meeting there,
+    # so adjacent corners on a short edge cannot overrun each other.
+    cut = np.minimum(length[:-1], length[1:]) * f
+
+    out = [p[0]]
+    t = np.linspace(0.0, 1.0, segments + 2)[1:-1][:, None]
+    for i in range(1, n - 1):
+        r = cut[i - 1]
+        if r < 1e-4:
+            out.append(p[i])
+            continue
+        a = p[i] + (p[i - 1] - p[i]) * (r / max(length[i - 1], 1e-6))
+        b = p[i] + (p[i + 1] - p[i]) * (r / max(length[i], 1e-6))
+        out.append(a)
+        # Quadratic Bezier through the corner: a -> p[i] -> b.
+        out.extend((1 - t) ** 2 * a + 2 * (1 - t) * t * p[i] + t ** 2 * b)
+        out.append(b)
+    out.append(p[-1])
+    return np.asarray(out, dtype=np.float32)
+
+
 def _leaf_depths(coverage, side, n, min_depth, max_depth, pen_px,
-                 white_px: float = 0.0) -> np.ndarray:
+                 white_px: float = 0.0, features=None,
+                 detail: float = 0.0) -> np.ndarray:
     """Subdivision depth per finest-level cell, sized to match coverage.
 
     At depth ``d`` the curve lays about ``side * 2^d`` of line across a
@@ -108,6 +152,16 @@ def _leaf_depths(coverage, side, n, min_depth, max_depth, pen_px,
     sq[oy:oy + h, ox:ox + w] = coverage
 
     want = np.log2(np.maximum(sq, 1e-6) * side / pen_px)
+
+    # Depth normally follows darkness alone, so a pale but finely detailed
+    # region - an eye, a lip seam - is drawn at the same coarse pitch as the
+    # flat skin beside it and loses its structure.  Each extra level halves
+    # the cell, so adding the detail response here buys resolution exactly
+    # where the picture has something to resolve.
+    if features is not None and detail > 0:
+        fsq = np.zeros_like(sq)
+        fsq[oy:oy + h, ox:ox + w] = features
+        want = want + float(detail) * fsq
 
     # Depth is decided on cell averages, not per pixel: one dark pixel should
     # not drag an entire subtree deep and speckle the tone.

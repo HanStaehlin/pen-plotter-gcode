@@ -127,7 +127,8 @@ def trace(skel: np.ndarray, min_px: int = 6) -> list[np.ndarray]:
     return paths
 
 
-def generate(value, coverage, canvas, pen, cfg, strength: float = 0.5):
+def generate(value, coverage, canvas, pen, cfg, strength: float = 0.5,
+             features=None, feature_min: float = 0.0):
     """Outline strokes for the current image, in pixel coordinates."""
     px_per_mm = canvas.px_per_mm
     s = float(np.clip(strength, 0.02, 1.0))
@@ -166,10 +167,25 @@ def generate(value, coverage, canvas, pen, cfg, strength: float = 0.5):
         if float(np.hypot(*np.diff(pth, axis=0).T).sum()) < min_len:
             continue
         out.append(pth * k)
+
+    if features is not None and feature_min > 0 and out:
+        # As an overlay the job is to draw the *landmarks* - a lid line, a lip
+        # seam, a nostril - not every edge in the picture.  Fabric weave and
+        # foliage are edges too, and drawing those on top of finished shading
+        # only muddies it.  Keeping strokes that sit on thin dark structure
+        # picks out the lines a person would have drawn.
+        fh, fw = features.shape
+        kept = []
+        for pth in out:
+            ix = np.clip(pth[:, 0].astype(np.int32), 0, fw - 1)
+            iy = np.clip(pth[:, 1].astype(np.int32), 0, fh - 1)
+            if float(np.percentile(features[iy, ix], 70)) >= feature_min:
+                kept.append(pth)
+        out = kept
     return out
 
 
-def generate_lineart(value, coverage, canvas, pen, cfg):
+def generate_lineart(value, coverage, canvas, pen, cfg, features=None):
     """Skeleton of the drawn marks themselves - for scans and line art."""
     px_per_mm = canvas.px_per_mm
     v8 = np.clip(value * 255.0, 0, 255).astype(np.uint8)

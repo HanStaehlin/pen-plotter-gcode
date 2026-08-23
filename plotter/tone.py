@@ -79,12 +79,46 @@ def normalise(value: np.ndarray, black_pct: float, white_pct: float) -> np.ndarr
 
 # ── main entry point ─────────────────────────────────────────────────────
 
-def prepare(img: np.ndarray, cfg: ToneConfig, pen: PenConfig
-            ) -> tuple[np.ndarray, np.ndarray]:
-    """Return ``(value, coverage)`` maps at the configured resolution.
+def line_features(value: np.ndarray, px_per_mm: float,
+                  fine_mm: float = 0.7) -> np.ndarray:
+    """Find thin *dark* structures, 0..1.
+
+    A difference of Gaussians answers "is this darker than its surroundings at
+    roughly this scale", which is exactly what an eyelash line, a lip seam or
+    a nostril is.  Only the dark side is kept: we draw with dark ink, so a
+    thin bright line is not something the pen can assert.
+    """
+    sigma_fine = max(0.6, fine_mm * px_per_mm * 0.5)
+    sigma_wide = sigma_fine * 4.0
+    fine = cv2.GaussianBlur(value, (0, 0), sigma_fine)
+    wide = cv2.GaussianBlur(value, (0, 0), sigma_wide)
+    dark = np.clip(wide - fine, 0.0, None)
+
+    # Being a thin dark line is not enough - fabric weave, foliage and film
+    # grain are all thin dark lines, and boosting those darkens half the
+    # picture.  What separates a lip seam from a texture is that it stands
+    # *alone*: subtracting the local average of the response leaves isolated
+    # structure standing and cancels anything that repeats.
+    crowd = cv2.GaussianBlur(dark, (0, 0), sigma_fine * 12.0)
+    alone = np.clip(dark - crowd, 0.0, None)
+
+    # Scale against a high percentile rather than the max, so one very black
+    # pixel cannot flatten every other feature in the picture to nothing.
+    ref = float(np.percentile(alone, 99.5))
+    if ref < 1e-5:
+        return np.zeros_like(alone)
+    return np.clip(alone / ref, 0.0, 1.0).astype(np.float32)
+
+
+def prepare(img: np.ndarray, cfg: ToneConfig, pen: PenConfig,
+            px_per_mm: float = 4.0
+            ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Return ``(value, coverage, features)`` at the configured resolution.
 
     ``value``    - 0..1 lightness, 1 = paper white.  Used for structure analysis.
     ``coverage`` - 0..pen.max_coverage, the ink area fraction each pixel wants.
+    ``features`` - 0..1 strength of thin dark detail, used to keep small
+                   landmarks from being averaged away by the engines.
     """
     img = _resize_long_edge(img, cfg.resolution)
 
@@ -109,8 +143,18 @@ def prepare(img: np.ndarray, cfg: ToneConfig, pen: PenConfig
     if cfg.invert:
         value = 1.0 - value
 
+    features = line_features(value, px_per_mm, cfg.feature_mm)
     coverage = to_coverage(value, pen, cfg.ink_response)
-    return value.astype(np.float32), coverage
+
+    # Push thin dark detail toward the pen's black, in proportion to the
+    # headroom left.  Without this a lip seam contributes so little area that
+    # the surrounding skin tone swallows its entire ink budget.
+    if cfg.feature_gain > 0:
+        gain = float(np.clip(cfg.feature_gain, 0.0, 1.0))
+        coverage = coverage + gain * features * (pen.max_coverage - coverage)
+        coverage = np.clip(coverage, 0.0, pen.max_coverage).astype(np.float32)
+
+    return value.astype(np.float32), coverage, features
 
 
 def to_coverage(value: np.ndarray, pen: PenConfig,
@@ -152,6 +196,16 @@ def _lstar_to_linear(L: np.ndarray) -> np.ndarray:
     fy = (Ls + 16.0) / 116.0
     y = np.where(Ls > 8.0, fy ** 3, Ls / 903.3)
     return np.clip(y, 0.0, 1.0).astype(np.float32)
+
+
+def output_size(img: np.ndarray, target: int) -> tuple[int, int]:
+    """(width, height) the working image will have — mirrors _resize_long_edge."""
+    h, w = img.shape[:2]
+    long_edge = max(h, w)
+    if long_edge == target:
+        return w, h
+    scale = target / float(long_edge)
+    return (max(1, int(round(w * scale))), max(1, int(round(h * scale))))
 
 
 def _resize_long_edge(img: np.ndarray, target: int) -> np.ndarray:

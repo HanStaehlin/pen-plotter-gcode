@@ -32,7 +32,7 @@ def _amplitude_ratio(rho: np.ndarray) -> np.ndarray:
     return np.interp(np.clip(rho, 1.0, _RHO[-1]), _RHO, _K)
 
 
-def generate(value, coverage, canvas, pen, cfg):
+def generate(value, coverage, canvas, pen, cfg, features=None):
     h, w = coverage.shape
     px_per_mm = canvas.px_per_mm
     pen_px = max(0.4, pen.width_mm * px_per_mm)
@@ -123,7 +123,7 @@ def generate(value, coverage, canvas, pen, cfg):
     if len(run) >= 2:
         paths.append(np.asarray(run, dtype=np.float32))
 
-    ink = InkBuffer(coverage, pen_px)
+    ink = InkBuffer(coverage, pen_px, features=features)
     for p in paths:
         ink.deposit(p)
     return paths, ink

@@ -15,7 +15,7 @@ import numpy as np
 from ..geometry import InkBuffer
 
 
-def generate(value, coverage, canvas, pen, cfg):
+def generate(value, coverage, canvas, pen, cfg, features=None):
     px_per_mm = canvas.px_per_mm
     pen_px = max(0.4, pen.width_mm * px_per_mm)
     levels = int(np.clip(cfg.contour_levels, 2, 64))
@@ -30,7 +30,7 @@ def generate(value, coverage, canvas, pen, cfg):
     paths: list[np.ndarray] = []
     lo, hi = float(field.min()), float(field.max())
     if hi - lo < 1e-4:
-        return paths, InkBuffer(coverage, pen_px)
+        return paths, InkBuffer(coverage, pen_px, features=features)
 
     min_len = max(8.0, 4.0 * px_per_mm)
     min_area = (1.5 * px_per_mm) ** 2
@@ -47,7 +47,7 @@ def generate(value, coverage, canvas, pen, cfg):
                 continue
             pts = c[:, 0, :].astype(np.float32)
             paths.append(np.vstack([pts, pts[:1]]))     # close the loop
-    ink = InkBuffer(coverage, pen_px)
+    ink = InkBuffer(coverage, pen_px, features=features)
     for p in paths:
         ink.deposit(p)
     return paths, ink
