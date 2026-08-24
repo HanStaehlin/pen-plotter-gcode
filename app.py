@@ -152,6 +152,9 @@ def generate():
             "tone_error": (None if s["tone_error"] is None
                            else round(s["tone_error"], 3)),
             "rotated": s["rotated_for_bed"],
+            "resolution": s["resolution"],
+            "asked_resolution": _i("resolution", 1100),
+            "pen_px": round(s["pen_px"], 2),
             "elapsed": f"{s['elapsed_s']:.1f}s",
         },
     )
@@ -922,7 +925,11 @@ $('go').addEventListener('click', async () => {
       $('msg').className = 'note bad';
     } else {
       show(data);
-      $('msg').textContent = `rendered in ${data.stats.elapsed}`;
+      const st = data.stats;
+      $('msg').textContent = st.resolution > st.asked_resolution
+        ? `rendered in ${st.elapsed} · working image raised to ` +
+          `${st.resolution} px to keep the ${$('pen').value} mm pen above a pixel`
+        : `rendered in ${st.elapsed}`;
       $('msg').className = 'note';
       $('dl').style.display = 'block';
     }

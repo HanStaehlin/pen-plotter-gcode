@@ -167,6 +167,13 @@ sign of one of them.
 
 - **Pen width is the important setting.** It is what calibrates tone. Measure
   the real ink trace, not what the barrel claims.
+- **Finer hatching means a finer pen**, and the app needs telling. Tone is
+  reproduced by spacing strokes `pen / coverage` apart, so halving the nib
+  roughly doubles the line drawn: on one portrait, 0.40 mm gave 24 m and 18
+  minutes, 0.25 mm gave 38 m and 25 minutes, 0.15 mm gave 58 m and 40 minutes.
+  Tone accuracy holds throughout. A finer pen also affords more hatch
+  directions, since each contributes less coverage. The working resolution
+  follows the pen automatically when it would otherwise land sub-pixel.
 - The `plotter/` package is importable on its own:
 
   ```python

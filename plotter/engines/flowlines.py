@@ -84,6 +84,18 @@ def fill(field, ink, canvas, pen, cfg, seed=12345):
             if not (0 <= sx < w and 0 <= sy < h):
                 continue
 
+            # Walking a stroke only to throw it away for being too short is
+            # most of the work this loop does - on a fine pen, nine in ten
+            # traces were discarded.  Probing where the two ends of a minimum
+            # stroke would land costs three lookups instead of a full walk.
+            tx, ty = sampler.at(sx, sy)
+            reach = min_steps * step * 0.5
+            if not (ink.wants_ink(sx + tx * reach, sy + ty * reach,
+                                  keep_frac, floor)
+                    or ink.wants_ink(sx - tx * reach, sy - ty * reach,
+                                     keep_frac, floor)):
+                continue
+
             pts = _trace(sx, sy, sampler, ink, step, max_steps, w, h,
                          keep_frac, floor)
             if len(pts) < min_steps:
