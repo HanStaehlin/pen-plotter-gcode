@@ -127,33 +127,51 @@ def trace(skel: np.ndarray, min_px: int = 6) -> list[np.ndarray]:
     return paths
 
 
-def generate(value, coverage, canvas, pen, cfg, strength: float = 0.5,
-             features=None, feature_min: float = 0.0):
+def generate(value, coverage, canvas, pen, cfg, strength: float | None = None,
+             features=None, feature_min: float = 0.0, form=None,
+             field=None):
     """Outline strokes for the current image, in pixel coordinates."""
     px_per_mm = canvas.px_per_mm
+    # Called two ways: as an engine in its own right, where the registry
+    # passes no strength, and as an overlay, where the pipeline does.  Fall
+    # back to the configured value so the control works in both.
+    if strength is None:
+        strength = getattr(cfg, "outline_strength", 0.5)
     s = float(np.clip(strength, 0.02, 1.0))
 
-    # Work at a coarser scale than the photo.  Texture - fabric weave, film
-    # grain, foliage - is edges all the way down, and a detector run at full
-    # resolution answers honestly with thousands of them.  Choosing the scale
-    # at which an edge counts is the whole job here; a bilateral pass then
-    # flattens what is left inside regions without softening the boundaries.
-    detail_mm = 0.35 + 1.4 * (1.0 - s)
-    k = max(1.0, detail_mm * px_per_mm / 2.0)
-    small = cv2.resize(value, (max(8, int(value.shape[1] / k)),
-                               max(8, int(value.shape[0] / k))),
-                       interpolation=cv2.INTER_AREA)
-    small = cv2.bilateralFilter(small.astype(np.float32), 7, 0.10, 7)
-    v8 = np.clip(small * 255.0, 0, 255).astype(np.uint8)
-
-    # Thresholds from the image's own gradient distribution.  Fixed Canny
-    # numbers mean a flat portrait gives nothing and a busy street gives mud.
-    gx = cv2.Sobel(v8, cv2.CV_32F, 1, 0, ksize=3)
-    gy = cv2.Sobel(v8, cv2.CV_32F, 0, 1, ksize=3)
-    mag = cv2.magnitude(gx, gy)
-    hi = float(np.percentile(mag, 100.0 - 12.0 * s))
-    hi = max(12.0, hi)
-    edges = cv2.Canny(v8, hi * 0.4, hi, L2gradient=True)
+    if getattr(cfg, "line_method", "canny") == "coherent":
+        # Flow-based DoG: looks only across the local structure, then smooths
+        # along it, so what comes back is connected line work rather than a
+        # confetti of fragments traced up both sides of every stroke.
+        from .. import flow as _flow
+        from ..lines import coherent_lines
+        if field is None:
+            field = _flow.compute(value, sigma_grad=1.2, sigma_tensor=3.0,
+                                  coherence_mix=1.0,
+                                  base_angle_deg=cfg.angle_deg)
+        mask = coherent_lines(value, field,
+                              sigma_c=max(0.6, 0.20 * px_per_mm),
+                              sigma_m=max(2.0, 0.55 * px_per_mm),
+                              sharpness=30.0 + 180.0 * s)
+        edges = (mask.astype(np.uint8) * 255)
+        k = 1.0
+    else:
+        # Work at a coarser scale than the photo.  Texture - fabric weave,
+        # film grain, foliage - is edges all the way down, and a detector run
+        # at full resolution answers honestly with thousands of them.
+        detail_mm = 0.35 + 1.4 * (1.0 - s)
+        k = max(1.0, detail_mm * px_per_mm / 2.0)
+        small = cv2.resize(value, (max(8, int(value.shape[1] / k)),
+                                   max(8, int(value.shape[0] / k))),
+                           interpolation=cv2.INTER_AREA)
+        small = cv2.bilateralFilter(small.astype(np.float32), 7, 0.10, 7)
+        v8 = np.clip(small * 255.0, 0, 255).astype(np.uint8)
+        gx = cv2.Sobel(v8, cv2.CV_32F, 1, 0, ksize=3)
+        gy = cv2.Sobel(v8, cv2.CV_32F, 0, 1, ksize=3)
+        mag = cv2.magnitude(gx, gy)
+        hi = max(12.0, float(np.percentile(mag, 100.0 - 12.0 * s)))
+        edges = cv2.Canny(v8, hi * 0.4, hi, L2gradient=True)
+        edges = cv2.dilate(edges, np.ones((3, 3), np.uint8))
 
     skel = skeleton(edges)
     paths = trace(skel, min_px=4)
@@ -185,7 +203,8 @@ def generate(value, coverage, canvas, pen, cfg, strength: float = 0.5,
     return out
 
 
-def generate_lineart(value, coverage, canvas, pen, cfg, features=None):
+def generate_lineart(value, coverage, canvas, pen, cfg, features=None,
+                     form=None):
     """Skeleton of the drawn marks themselves - for scans and line art."""
     px_per_mm = canvas.px_per_mm
     v8 = np.clip(value * 255.0, 0, 255).astype(np.uint8)

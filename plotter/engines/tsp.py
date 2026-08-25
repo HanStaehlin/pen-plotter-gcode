@@ -24,7 +24,7 @@ except ImportError:                                   # pragma: no cover
 from ..geometry import InkBuffer
 
 
-def generate(value, coverage, canvas, pen, cfg, features=None):
+def generate(value, coverage, canvas, pen, cfg, features=None, form=None):
     h, w = coverage.shape
     px_per_mm = canvas.px_per_mm
     pen_px = max(0.4, pen.width_mm * px_per_mm)

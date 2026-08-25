@@ -7,6 +7,7 @@ from dataclasses import dataclass, field as dc_field, replace
 
 import numpy as np
 
+from . import depth as depth_mod
 from . import engines, gcode, paths as P, tone, transform
 from .config import Config
 from .geometry import Canvas
@@ -20,6 +21,7 @@ class Result:
     value: np.ndarray                    # 0-1 lightness used for structure
     coverage: np.ndarray                 # ink target that was aimed at
     stats: dict = dc_field(default_factory=dict)
+    depth: np.ndarray | None = None      # 0-1 relative depth, 1 = nearest
 
     def output_paths(self):
         """Paths as the machine will receive them, turned if the bed needs it.
@@ -80,10 +82,22 @@ def convert(img_rgb: np.ndarray, cfg: Config, progress=None) -> Result:
                            0.0, cfg.pen.max_coverage)
         coverage[coverage < cfg.pen.min_coverage] = 0.0
 
+    form = None
+    depth_map = None
+    if cfg.render.form_weight > 0:
+        if not depth_mod.available():
+            note("depth model unavailable (torch not installed) — skipping form")
+        else:
+            note(f"estimating depth on {depth_mod.device_name()}")
+            depth_map = depth_mod.estimate(img_rgb, size=(w_px, h_px),
+                                           model=cfg.render.depth_model)
+            form = depth_mod.form_orientation(depth_map,
+                                              sigma=max(1.0, cfg.render.form_smooth))
+
     note(f"drawing ({cfg.render.engine})")
     engine = engines.get(cfg.render.engine)
     produced = engine(value, coverage, canvas, cfg.pen, cfg.render,
-                      features=features)
+                      features=features, form=form)
     px_paths, ink = produced if isinstance(produced, tuple) else (produced, None)
 
     if cfg.render.outline and cfg.render.engine not in ("outline", "lineart"):
@@ -91,7 +105,8 @@ def convert(img_rgb: np.ndarray, cfg: Config, progress=None) -> Result:
         px_paths = list(px_paths) + list(engines.outline.generate(
             value, coverage, canvas, cfg.pen, cfg.render,
             strength=cfg.render.outline_strength,
-            features=features, feature_min=cfg.render.outline_feature_min))
+            features=features, feature_min=cfg.render.outline_feature_min,
+            form=form))
 
     mm_paths = canvas.paths_to_mm(px_paths)
     raw_count = len(mm_paths)
@@ -125,6 +140,7 @@ def convert(img_rgb: np.ndarray, cfg: Config, progress=None) -> Result:
         "elapsed_s": time.perf_counter() - t_start,
         "resolution": resolution,
         "pen_px": cfg.pen.width_mm * canvas.px_per_mm,
+        "used_depth": depth_map is not None,
     })
 
     rotated = (cfg.page.rotate_output or "auto").lower() != "off" and (
@@ -133,7 +149,7 @@ def convert(img_rgb: np.ndarray, cfg: Config, progress=None) -> Result:
     stats["rotated_for_bed"] = bool(rotated)
 
     return Result(paths=mm_paths, canvas=canvas, config=cfg,
-                  value=value, coverage=coverage, stats=stats)
+                  value=value, coverage=coverage, stats=stats, depth=depth_map)
 
 
 #: A pen narrower than one working pixel cannot be placed accurately, and the

@@ -135,6 +135,9 @@ class RenderConfig:
     # flowlines
     flow_coherence: float = 1.0    # 0 = ignore image structure, 1 = full
     flow_smooth: float = 4.0       # structure tensor smoothing sigma (px)
+    #: Sharpness of the "is there really structure here" test. Above 1 it
+    #: takes strong texture seriously and ignores faint shading gradients.
+    coherence_gamma: float = 2.0
     stroke_min_mm: float = 1.5
     stroke_max_mm: float = 60.0
     # waves
@@ -161,12 +164,22 @@ class RenderConfig:
     hatch_spread_deg: float = 58.0  # angle between successive directions
     #: Coverage one direction may contribute before the next takes over.
     hatch_share: float = 0.30
-    #: Cross-hatch follows the form only faintly by default.  Full coherence
-    #: makes every tonal blob into concentric rings, which on a face reads as
-    #: contour spaghetti rather than as a drawing.
-    hatch_coherence: float = 0.20
+    #: How much hatching follows the image's own structure.  Full coherence
+    #: turns every tonal blob into concentric rings; too little and real
+    #: texture - feathers, fur, hair - is flattened into ruled diagonal.
+    #: 0.55 was chosen on photographs rather than on synthetic tests.
+    hatch_coherence: float = 0.45
     # contours
     contour_levels: int = 12
+    #: How strongly a depth-derived form field steers hatching. Shading says
+    #: where the light is; depth says where the surface is, so this is what
+    #: makes strokes wrap a form instead of ringing a highlight.
+    form_weight: float = 0.8
+    form_smooth: float = 8.0       # px; curvature direction is twitchy
+    depth_model: str = "MiDaS_small"
+    #: "coherent" = flow-based DoG (connected line work), "canny" = the old
+    #: fixed-scale detector.
+    line_method: str = "coherent"
     # overlay
     #: Trace landmark lines on top of the shading.  On a portrait this is
     #: what makes an eye read as an eye rather than as a dark patch.

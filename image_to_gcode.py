@@ -45,6 +45,16 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--outline-strength", type=float, default=0.6, metavar="F")
     g.add_argument("--hatch-layers", type=int, default=3,
                    help="crosshatch: how many directions may stack")
+    g.add_argument("--hatch-coherence", type=float, default=0.45, metavar="F",
+                   help="crosshatch: how far hatching follows image texture; "
+                        "raise for feathers and fur, lower for portraits")
+    g.add_argument("--form-weight", type=float, default=0.8, metavar="F",
+                   help="how strongly depth-estimated form steers hatching; "
+                        "0 disables depth estimation entirely")
+    g.add_argument("--depth-model", default="MiDaS_small",
+                   choices=["MiDaS_small", "DPT_Hybrid", "DPT_Large"])
+    g.add_argument("--lines", default="coherent", choices=["coherent", "canny"],
+                   help="line extractor: flow-guided DoG, or the old detector")
     g.add_argument("--hatch-share", type=float, default=0.30, metavar="F",
                    help="crosshatch: coverage one direction may supply "
                         "before the next is laid across it")
@@ -163,6 +173,10 @@ def config_from_args(args) -> Config:
     cfg.render.outline_strength = args.outline_strength
     cfg.render.hatch_layers = args.hatch_layers
     cfg.render.hatch_share = args.hatch_share
+    cfg.render.hatch_coherence = args.hatch_coherence
+    cfg.render.form_weight = args.form_weight
+    cfg.render.depth_model = args.depth_model
+    cfg.render.line_method = args.lines
     cfg.render.hilbert_smooth = args.hilbert_smooth
     cfg.render.hilbert_detail = args.hilbert_detail
     cfg.render.flow_coherence = args.flow_coherence

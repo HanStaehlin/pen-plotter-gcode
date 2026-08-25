@@ -17,20 +17,24 @@ from .. import flow
 from ..geometry import InkBuffer
 
 
-def build_field(value, cfg):
+def build_field(value, cfg, form=None):
     """The orientation field the strokes will follow."""
-    return flow.compute(value,
-                        sigma_grad=1.2,
-                        sigma_tensor=max(0.8, cfg.flow_smooth),
-                        coherence_mix=cfg.flow_coherence,
-                        base_angle_deg=cfg.angle_deg)
+    field = flow.compute(value,
+                         sigma_grad=1.2,
+                         sigma_tensor=max(0.8, cfg.flow_smooth),
+                         coherence_mix=cfg.flow_coherence,
+                         base_angle_deg=cfg.angle_deg,
+                         coherence_gamma=cfg.coherence_gamma)
+    return flow.blend_form(field, form, cfg.form_weight,
+                           smooth=max(1.0, cfg.form_smooth))
 
 
-def generate(value, coverage, canvas, pen, cfg, field=None, features=None):
+def generate(value, coverage, canvas, pen, cfg, field=None, features=None,
+             form=None):
     px_per_mm = canvas.px_per_mm
     pen_px = max(0.4, pen.width_mm * px_per_mm)
     if field is None:
-        field = build_field(value, cfg)
+        field = build_field(value, cfg, form)
 
     # Cap how sparse shading may get: past ~26 pen widths a "line every
     # 10 mm" stops reading as tone and starts reading as a stray stroke.

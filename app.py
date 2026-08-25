@@ -78,6 +78,10 @@ def config_from_form() -> Config:
     cfg.render.hatch_share = _f("hatch_share", 0.30)
     cfg.render.hilbert_smooth = _f("hilbert_smooth", 0.35)
     cfg.render.hilbert_detail = _f("hilbert_detail", 1.2)
+    cfg.render.hatch_coherence = _f("hatch_coherence", 0.45)
+    cfg.render.coherence_gamma = _f("coherence_gamma", 2.0)
+    cfg.render.form_weight = _f("form_weight", 0.8) if _b("use_depth") else 0.0
+    cfg.render.line_method = "coherent" if _b("coherent_lines") else "canny"
     cfg.render.contour_levels = _i("levels", 12)
     cfg.render.tsp_points = _i("points", 12000)
     cfg.render.hilbert_max_depth = _i("depth", 9)
@@ -553,6 +557,15 @@ HTML = r"""
         </div>
         <div class="ctl" data-for="crosshatch">
           <label>
+            <span>Follow texture
+              <span class="tip" title="How far hatching bends to follow the image's own structure. High keeps feathers, fur and hair; too high and smooth skin turns into concentric rings around every highlight. No single value suits both — raise it for texture, lower it for portraits.">i</span>
+            </span>
+            <span class="v" id="hatch_coherenceV">0.45</span>
+          </label>
+          <input type="range" id="hatch_coherence" min="0" max="1" step="0.05" value="0.45">
+        </div>
+        <div class="ctl" data-for="crosshatch">
+          <label>
             <span>Tone per direction
               <span class="tip" title="How much darkness one angle may supply before the next is laid across it. Lower it and cross-hatching starts earlier, so more of the picture shows two or three directions.">i</span>
             </span>
@@ -597,6 +610,22 @@ HTML = r"""
         <div class="ctl" data-for="waves,contours">
           <label>Line spacing <span class="v" id="spacingV">auto</span></label>
           <input type="range" id="spacing" min="0" max="6" step="0.1" value="0">
+        </div>
+      </section>
+
+      <section>
+        <div class="sec-head"><h2>Form &amp; line</h2></div>
+        <label class="check">
+          <input type="checkbox" id="coherent_lines" checked> Coherent line tracing
+          <span class="tip" title="Flow-guided Difference of Gaussians. Looks only across the local structure, then smooths along it, so lines come out connected instead of as fragments traced up both sides of every stroke.">i</span>
+        </label>
+        <label class="check">
+          <input type="checkbox" id="use_depth" checked> Depth-driven form
+          <span class="tip" title="Estimates depth with MiDaS on the GPU and hatches along the surface's principal curvature, so strokes wrap a form instead of ruling straight across it. Only applied where the image itself has no structure to follow, so texture is left alone. Needs PyTorch; skipped if absent.">i</span>
+        </label>
+        <div class="ctl" data-when="use_depth">
+          <label>Form strength <span class="v" id="form_weightV">0.80</span></label>
+          <input type="range" id="form_weight" min="0.1" max="1" step="0.05" value="0.8">
         </div>
       </section>
 
@@ -816,6 +845,7 @@ const FMT = {
   hatch_layers:v=>v, hatch_share:v=>(+v).toFixed(2),
   hilbert_smooth:v=>(+v).toFixed(2), hilbert_detail:v=>(+v).toFixed(1),
   feature_gain:v=>(+v).toFixed(2), outline_strength:v=>(+v).toFixed(2),
+  hatch_coherence:v=>(+v).toFixed(2), form_weight:v=>(+v).toFixed(2),
   spacing:v=>(+v===0?'auto':(+v).toFixed(1)+' mm'),
   pen:v=>(+v).toFixed(2)+' mm', contrast:v=>(+v).toFixed(1),
   detail:v=>(+v).toFixed(2), exposure:v=>(+v).toFixed(2), gamma:v=>(+v).toFixed(2),
@@ -860,7 +890,7 @@ function syncWhen() {
     el.style.display = src && src.checked ? '' : 'none';
   });
 }
-['portrait', 'outline'].forEach(id =>
+['portrait', 'outline', 'use_depth'].forEach(id =>
   $(id).addEventListener('change', syncWhen));
 syncWhen();
 
@@ -896,12 +926,12 @@ function setFile(f) {
 /* ── generate ── */
 const FIELDS = ['ink','angle','coherence','levels','points','depth','coarsest',
   'spacing','hatch_layers','hatch_share','hilbert_smooth','hilbert_detail',
-  'feature_gain','outline_strength',
+  'feature_gain','outline_strength','hatch_coherence','form_weight',
   'pen','paper','margin','contrast','detail','exposure','gamma','chroma',
   'ink_response','resolution','merge','bridge','bridge_min_ink','max_coverage',
   'feed','travel_feed'];
 const CHECKS = ['outline','portrait','rotate_out','invert','flip_x','flip_y',
-  'remove_bg','show_travel'];
+  'remove_bg','show_travel','coherent_lines','use_depth'];
 
 $('go').addEventListener('click', async () => {
   if (!file) return;

@@ -45,7 +45,8 @@ def compute(value: np.ndarray,
             sigma_grad: float = 1.2,
             sigma_tensor: float = 4.0,
             coherence_mix: float = 1.0,
-            base_angle_deg: float = 45.0) -> FlowField:
+            base_angle_deg: float = 45.0,
+            coherence_gamma: float = 1.0) -> FlowField:
     """Build the tangent field for a 0-1 lightness image.
 
     ``coherence_mix`` fades between pure image structure (1.0) and a plain
@@ -63,6 +64,16 @@ def compute(value: np.ndarray,
 
     c2_f, s2_f, coh_f = fine
     c2_c, s2_c, coh_c = coarse
+
+    # Sharpen the coherence response.  Smooth shading still yields a weak but
+    # non-zero orientation, and following it is what turns every highlight
+    # into concentric rings; real texture - feathers, fur, grain - answers far
+    # more strongly.  Raising the power suppresses the former and keeps the
+    # latter, which is what lets one setting serve a portrait and a bird.
+    if coherence_gamma != 1.0:
+        g = max(0.1, float(coherence_gamma))
+        coh_f = np.power(coh_f, g)
+        coh_c = np.power(coh_c, g)
 
     # Where fine structure is weak, defer to the coarse field; where that is
     # weak too, defer to the base angle.  Blending happens in double-angle
@@ -82,6 +93,36 @@ def compute(value: np.ndarray,
     norm = np.maximum(np.hypot(c2, s2), 1e-8)
     coherence = np.clip(np.maximum(coh_f, coh_c), 0.0, 1.0)
     return FlowField(c2 / norm, s2 / norm, coherence)
+
+
+def blend_form(field: FlowField, form, weight: float,
+               smooth: float = 6.0) -> FlowField:
+    """Fold a depth-derived form orientation into a tone-derived field.
+
+    Blending happens in double-angle space, weighted by how far the surface
+    is from umbilic there: on a sphere both principal curvatures match and
+    the direction is arbitrary, so those points must not outvote their
+    neighbours.  The result is smoothed for the same reason - a per-pixel
+    curvature direction is far too twitchy to hatch along.
+    """
+    if form is None or weight <= 0:
+        return field
+    fc2, fs2, strength = form
+    # Depth is smooth by nature, so letting it win everywhere erases real
+    # texture: on a photograph of a bird it flattens every feather, which is
+    # the one thing making the subject read.  Give it the ground the tone
+    # field cannot hold - a cheek, a shoulder, the side of a sphere, where
+    # there is no structure to follow and strokes would otherwise just rule
+    # straight across the form.
+    w = (np.clip(float(weight), 0.0, 1.0) * strength
+         * (1.0 - np.clip(field.coherence, 0.0, 1.0)))
+    c2 = (1.0 - w) * field.c2 + w * fc2
+    s2 = (1.0 - w) * field.s2 + w * fs2
+    if smooth > 0:
+        c2 = cv2.GaussianBlur(c2, (0, 0), smooth)
+        s2 = cv2.GaussianBlur(s2, (0, 0), smooth)
+    norm = np.maximum(np.hypot(c2, s2), 1e-8)
+    return FlowField(c2 / norm, s2 / norm, field.coherence)
 
 
 def _tensor_orientation(gx: np.ndarray, gy: np.ndarray, sigma: float):

@@ -6,3 +6,10 @@ Flask>=3.0
 # Optional: the "Remove background" checkbox in the web UI.
 # Downloads a ~170 MB model on first use.
 # rembg>=2.0
+
+# Optional: depth-driven hatching ("Form & line" > Depth-driven form) and
+# the app runs fine without it — that control is simply skipped.
+# On Apple Silicon, torch uses the Metal (MPS) backend automatically; no
+# separate install step needed beyond a normal `pip install torch`.
+# torch>=2.1
+# timm>=0.9        # MiDaS's backbone, pulled in via torch.hub

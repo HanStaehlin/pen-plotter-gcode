@@ -133,6 +133,49 @@ For portraits `crosshatch` beats `flowlines`. Flow lines follow the image's
 own contours, which on a face means concentric rings around every tonal blob;
 hatching lays parallel strokes that describe form without ringing features.
 
+### Line, and form
+
+A drawing is really three separate problems, and until now this project only
+solved one of them well:
+
+| | what it is | status |
+|---|---|---|
+| tone | where ink goes | solved — coverage model, ~0.07 error |
+| **line** | marks describing edges and detail | now: flow-guided DoG |
+| **form** | hatching *direction* encoding surface shape | now: depth-estimated |
+
+**Coherent line tracing** (`--lines coherent`, on by default) replaces plain
+Canny for the `outline` engine and the landmark overlay. Canny finds edges at
+one fixed scale and in isolation, so on a photograph it traces both sides of
+every dark line and returns a confetti of fragments. Kang, Lee & Chui's
+method (2007) asks the same question — "is there a step here" — but only ever
+looks *across* the local structure, then smooths the answer *along* it. The
+across-pass finds the edge; the along-pass is what turns a field of noisy
+responses into connected line work a pen can draw in one stroke.
+
+**Depth-driven form** (`--form-weight`, default 0.8) estimates monocular
+depth with MiDaS and hatches along the surface's principal curvature — the
+direction an engraver would ring a cylinder, not the direction along its
+axis. On Apple Silicon this runs on the Metal (MPS) backend and costs about
+20 ms after the model is warm. It needs PyTorch (`pip install torch`); the
+app runs fine without it and the control is simply skipped.
+
+Depth is smooth by nature, and applying it everywhere erases real texture —
+tried naively, it flattened every feather on a photograph of a bird into
+ruled diagonal, because feathers are texture MiDaS smooths away, not
+geometry it can see. Depth is therefore blended in only where the image's own
+structure is weak (`1 - coherence`), so it fills the ground shading can't
+hold — a cheek, a shoulder, the side of a sphere — and leaves real texture to
+speak for itself.
+
+That tension is also why **Follow texture** (`hatch_coherence`, default
+0.45) has no value that suits everything: high keeps feathers and fur
+readable; too high and smooth skin turns into concentric rings around every
+highlight, because the tone field is chasing faint shading gradients that
+carry no real texture. `coherence_gamma` (default 2.0) sharpens the "is this
+real structure" test to make one setting serve more cases, but for very
+different subjects — a face versus a bird — it is worth adjusting by hand.
+
 ### Hilbert variants
 
 Corner rounding (`--hilbert-smooth`) is worth having on. A plotter nearly

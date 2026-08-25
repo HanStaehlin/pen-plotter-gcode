@@ -25,14 +25,14 @@ from ..geometry import InkBuffer
 from . import flowlines
 
 
-def generate(value, coverage, canvas, pen, cfg, features=None):
+def generate(value, coverage, canvas, pen, cfg, features=None, form=None):
     px_per_mm = canvas.px_per_mm
     pen_px = max(0.4, pen.width_mm * px_per_mm)
 
     layers = int(np.clip(cfg.hatch_layers, 1, 5))
     offsets = _offsets(layers, cfg.hatch_spread_deg)
 
-    base = flow_field(value, cfg)
+    base = flow_field(value, cfg, form)
     ink = InkBuffer(coverage, pen_px, max_spacing_px=26.0, features=features)
 
     # How much coverage one direction may contribute before the next takes
@@ -50,12 +50,18 @@ def generate(value, coverage, canvas, pen, cfg, features=None):
     return paths, ink
 
 
-def flow_field(value, cfg):
-    """Hatching direction: mostly steady, only faintly form-following."""
+def flow_field(value, cfg, form=None):
+    """Hatching direction: mostly steady, only faintly tone-following.
+
+    Tone coherence is kept low on purpose - following the image's own
+    contours rings every bright patch - but a *depth*-derived form field is
+    passed through at full weight, because that one describes the surface
+    rather than the lighting.
+    """
     from copy import copy
     sub = copy(cfg)
     sub.flow_coherence = cfg.hatch_coherence
-    return flowlines.build_field(value, sub)
+    return flowlines.build_field(value, sub, form)
 
 
 def _offsets(layers: int, spread_deg: float) -> list[float]:
