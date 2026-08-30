@@ -25,7 +25,8 @@ from ..geometry import InkBuffer
 from . import flowlines
 
 
-def generate(value, coverage, canvas, pen, cfg, features=None, form=None):
+def generate(value, coverage, canvas, pen, cfg, features=None, form=None,
+             image_rgb=None):
     px_per_mm = canvas.px_per_mm
     pen_px = max(0.4, pen.width_mm * px_per_mm)
 

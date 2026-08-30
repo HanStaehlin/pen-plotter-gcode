@@ -180,6 +180,11 @@ class RenderConfig:
     #: "coherent" = flow-based DoG (connected line work), "canny" = the old
     #: fixed-scale detector.
     line_method: str = "coherent"
+    # region-adaptive
+    region_segments: int = 400     # approximate SLIC superpixel count
+    #: How much local texture energy it takes for a region to be routed to
+    #: flowlines instead of crosshatch. Lower routes more to texture.
+    region_threshold: float = 0.25
     # overlay
     #: Trace landmark lines on top of the shading.  On a portrait this is
     #: what makes an eye read as an eye rather than as a dark patch.

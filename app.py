@@ -79,6 +79,8 @@ def config_from_form() -> Config:
     cfg.render.hilbert_smooth = _f("hilbert_smooth", 0.35)
     cfg.render.hilbert_detail = _f("hilbert_detail", 1.2)
     cfg.render.hatch_coherence = _f("hatch_coherence", 0.45)
+    cfg.render.region_segments = _i("region_segments", 400)
+    cfg.render.region_threshold = _f("region_threshold", 0.25)
     cfg.render.coherence_gamma = _f("coherence_gamma", 2.0)
     cfg.render.form_weight = _f("form_weight", 0.8) if _b("use_depth") else 0.0
     cfg.render.line_method = "coherent" if _b("coherent_lines") else "canny"
@@ -555,6 +557,19 @@ HTML = r"""
           <label>Hatch directions <span class="v" id="hatch_layersV">3</span></label>
           <input type="range" id="hatch_layers" min="1" max="5" step="1" value="3">
         </div>
+        <div class="ctl" data-for="adaptive">
+          <label>
+            <span>Texture sensitivity
+              <span class="tip" title="How much local tone variation it takes for a region to be routed to flow-traced strokes instead of cross-hatch. Lower catches more texture (feathers, fur) but risks routing smooth gradients there too.">i</span>
+            </span>
+            <span class="v" id="region_thresholdV">0.25</span>
+          </label>
+          <input type="range" id="region_threshold" min="0.10" max="0.55" step="0.02" value="0.25">
+        </div>
+        <div class="ctl" data-for="adaptive">
+          <label>Region count <span class="v" id="region_segmentsV">400</span></label>
+          <input type="range" id="region_segments" min="100" max="1000" step="50" value="400">
+        </div>
         <div class="ctl" data-for="crosshatch">
           <label>
             <span>Follow texture
@@ -846,6 +861,7 @@ const FMT = {
   hilbert_smooth:v=>(+v).toFixed(2), hilbert_detail:v=>(+v).toFixed(1),
   feature_gain:v=>(+v).toFixed(2), outline_strength:v=>(+v).toFixed(2),
   hatch_coherence:v=>(+v).toFixed(2), form_weight:v=>(+v).toFixed(2),
+  region_threshold:v=>(+v).toFixed(2), region_segments:v=>v,
   spacing:v=>(+v===0?'auto':(+v).toFixed(1)+' mm'),
   pen:v=>(+v).toFixed(2)+' mm', contrast:v=>(+v).toFixed(1),
   detail:v=>(+v).toFixed(2), exposure:v=>(+v).toFixed(2), gamma:v=>(+v).toFixed(2),
@@ -927,6 +943,7 @@ function setFile(f) {
 const FIELDS = ['ink','angle','coherence','levels','points','depth','coarsest',
   'spacing','hatch_layers','hatch_share','hilbert_smooth','hilbert_detail',
   'feature_gain','outline_strength','hatch_coherence','form_weight',
+  'region_threshold','region_segments',
   'pen','paper','margin','contrast','detail','exposure','gamma','chroma',
   'ink_response','resolution','merge','bridge','bridge_min_ink','max_coverage',
   'feed','travel_feed'];

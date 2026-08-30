@@ -30,7 +30,7 @@ def build_field(value, cfg, form=None):
 
 
 def generate(value, coverage, canvas, pen, cfg, field=None, features=None,
-             form=None):
+             form=None, image_rgb=None):
     px_per_mm = canvas.px_per_mm
     pen_px = max(0.4, pen.width_mm * px_per_mm)
     if field is None:

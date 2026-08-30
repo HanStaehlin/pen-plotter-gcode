@@ -129,7 +129,7 @@ def trace(skel: np.ndarray, min_px: int = 6) -> list[np.ndarray]:
 
 def generate(value, coverage, canvas, pen, cfg, strength: float | None = None,
              features=None, feature_min: float = 0.0, form=None,
-             field=None):
+             field=None, image_rgb=None):
     """Outline strokes for the current image, in pixel coordinates."""
     px_per_mm = canvas.px_per_mm
     # Called two ways: as an engine in its own right, where the registry
@@ -204,7 +204,7 @@ def generate(value, coverage, canvas, pen, cfg, strength: float | None = None,
 
 
 def generate_lineart(value, coverage, canvas, pen, cfg, features=None,
-                     form=None):
+                     form=None, image_rgb=None):
     """Skeleton of the drawn marks themselves - for scans and line art."""
     px_per_mm = canvas.px_per_mm
     v8 = np.clip(value * 255.0, 0, 255).astype(np.uint8)

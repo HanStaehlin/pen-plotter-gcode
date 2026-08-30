@@ -97,7 +97,7 @@ def convert(img_rgb: np.ndarray, cfg: Config, progress=None) -> Result:
     note(f"drawing ({cfg.render.engine})")
     engine = engines.get(cfg.render.engine)
     produced = engine(value, coverage, canvas, cfg.pen, cfg.render,
-                      features=features, form=form)
+                      features=features, form=form, image_rgb=img_rgb)
     px_paths, ink = produced if isinstance(produced, tuple) else (produced, None)
 
     if cfg.render.outline and cfg.render.engine not in ("outline", "lineart"):
@@ -106,7 +106,7 @@ def convert(img_rgb: np.ndarray, cfg: Config, progress=None) -> Result:
             value, coverage, canvas, cfg.pen, cfg.render,
             strength=cfg.render.outline_strength,
             features=features, feature_min=cfg.render.outline_feature_min,
-            form=form))
+            form=form, image_rgb=img_rgb))
 
     mm_paths = canvas.paths_to_mm(px_paths)
     raw_count = len(mm_paths)

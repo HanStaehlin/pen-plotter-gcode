@@ -23,6 +23,7 @@ python3 image_to_gcode.py --list-engines
 | Engine      | Look                                              | Pen lifts        |
 |-------------|---------------------------------------------------|------------------|
 | `flowlines` | Strokes follow the image's own structure          | many long strokes|
+| `adaptive`  | Cross-hatch where smooth, flow lines where textured| many, mixed style|
 | `crosshatch`| Layered engraving; directions stack as tone darkens| many medium      |
 | `waves`     | One serpentine sweep; tone from how far it detours| near-continuous  |
 | `hilbert`   | A single space-filling curve, adaptive depth      | one curve        |
@@ -31,7 +32,7 @@ python3 image_to_gcode.py --list-engines
 | `outline`   | Traced edges only, no shading                     | few strokes      |
 | `lineart`   | Centreline trace of an existing drawing or scan   | few strokes      |
 
-`flowlines` is the default and the best general answer for photographs.
+`flowlines` is the default and the best general answer for photographs. `adaptive` is worth trying whenever a photograph mixes real texture with smooth shading in the same frame - a bird, an animal, a person against a plain background.
 `hilbert` and `tsp` are the ones to reach for when pen lifts really matter;
 both stay unbroken except where the paper is genuinely blank.
 
@@ -175,6 +176,37 @@ highlight, because the tone field is chasing faint shading gradients that
 carry no real texture. `coherence_gamma` (default 2.0) sharpens the "is this
 real structure" test to make one setting serve more cases, but for very
 different subjects — a face versus a bird — it is worth adjusting by hand.
+
+### Region-adaptive routing
+
+`hatch_coherence` has no value that suits both a feathered subject and a
+smooth face (see above) - that tension turned out to be a property of the
+*image*, not a tuning miss: some regions are real texture (feathers, fur,
+weave) and want to follow it closely, others are shading (skin, sky) and
+ring into concentric contours if they do. The `adaptive` engine sidesteps
+picking one global value by classifying regions and routing each to the
+engine suited to it: cross-hatch for smooth shading, flow-traced strokes
+(full structure-following) for texture.
+
+Classification is local variance of lightness, aggregated over SLIC
+superpixels rather than per pixel - a per-pixel threshold on noisy variance
+would fragment one feather into hundreds of slivers, each triggering an
+engine switch. SLIC needs real colour to find those superpixels: handed a
+single grayscale channel it has no signal to cluster on, spatial compactness
+wins outright, and the result is a perfect grid that ignores the image
+entirely - worth knowing if you reach for `skimage.segmentation.slic`
+elsewhere, since the failure is silent rather than an error.
+
+Tested against the same photograph that broke Hilbert: routing rescued the
+eye and chest barring that pure `crosshatch` alone lost, while still giving
+the smooth wing membrane a clean engraved look. The honest cost is that it
+draws more line than either pure engine alone (owl: 35.5 m vs 28.4 m for
+crosshatch, 30.4 m for flowlines) - confining each style to a smaller,
+irregularly-shaped region means shorter individual strokes than letting one
+engine range over the full canvas, and that overhead does not go away by
+cleaning up the mask (tried; made no measurable difference). Worth it when a
+subject genuinely mixes texture and smooth shading; pure `flowlines` remains
+the better choice when everything in frame is already texture.
 
 ### Hilbert variants
 

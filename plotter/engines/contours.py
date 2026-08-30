@@ -15,7 +15,7 @@ import numpy as np
 from ..geometry import InkBuffer
 
 
-def generate(value, coverage, canvas, pen, cfg, features=None, form=None):
+def generate(value, coverage, canvas, pen, cfg, features=None, form=None, image_rgb=None):
     px_per_mm = canvas.px_per_mm
     pen_px = max(0.4, pen.width_mm * px_per_mm)
     levels = int(np.clip(cfg.contour_levels, 2, 64))

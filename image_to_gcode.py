@@ -45,6 +45,11 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--outline-strength", type=float, default=0.6, metavar="F")
     g.add_argument("--hatch-layers", type=int, default=3,
                    help="crosshatch: how many directions may stack")
+    g.add_argument("--region-threshold", type=float, default=0.25, metavar="F",
+                   help="adaptive: texture energy needed to route a region "
+                        "to flow-traced strokes instead of cross-hatch")
+    g.add_argument("--region-segments", type=int, default=400,
+                   help="adaptive: approximate number of SLIC superpixels")
     g.add_argument("--hatch-coherence", type=float, default=0.45, metavar="F",
                    help="crosshatch: how far hatching follows image texture; "
                         "raise for feathers and fur, lower for portraits")
@@ -174,6 +179,8 @@ def config_from_args(args) -> Config:
     cfg.render.hatch_layers = args.hatch_layers
     cfg.render.hatch_share = args.hatch_share
     cfg.render.hatch_coherence = args.hatch_coherence
+    cfg.render.region_threshold = args.region_threshold
+    cfg.render.region_segments = args.region_segments
     cfg.render.form_weight = args.form_weight
     cfg.render.depth_model = args.depth_model
     cfg.render.line_method = args.lines
