@@ -75,6 +75,14 @@ def convert(img_rgb: np.ndarray, cfg: Config, progress=None) -> Result:
     tone_cfg = cfg.tone
     if resolution != cfg.tone.resolution:
         tone_cfg = replace(cfg.tone, resolution=resolution)
+    # Tone flips its own copy; every layer that reads the photo directly
+    # (depth, regions, learned lines) must see the same orientation or it
+    # lands mirrored against the shading.
+    view_rgb = img_rgb
+    if cfg.tone.flip_x:
+        view_rgb = np.ascontiguousarray(np.flipud(view_rgb))
+    if cfg.tone.flip_y:
+        view_rgb = np.ascontiguousarray(np.fliplr(view_rgb))
     value, coverage, features = tone.prepare(img_rgb, tone_cfg, cfg.pen,
                                              canvas.px_per_mm)
     if cfg.render.ink_scale != 1.0:
@@ -89,7 +97,7 @@ def convert(img_rgb: np.ndarray, cfg: Config, progress=None) -> Result:
             note("depth model unavailable (torch not installed) — skipping form")
         else:
             note(f"estimating depth on {depth_mod.device_name()}")
-            depth_map = depth_mod.estimate(img_rgb, size=(w_px, h_px),
+            depth_map = depth_mod.estimate(view_rgb, size=(w_px, h_px),
                                            model=cfg.render.depth_model)
             form = depth_mod.form_orientation(depth_map,
                                               sigma=max(1.0, cfg.render.form_smooth))
@@ -97,16 +105,16 @@ def convert(img_rgb: np.ndarray, cfg: Config, progress=None) -> Result:
     note(f"drawing ({cfg.render.engine})")
     engine = engines.get(cfg.render.engine)
     produced = engine(value, coverage, canvas, cfg.pen, cfg.render,
-                      features=features, form=form, image_rgb=img_rgb)
+                      features=features, form=form, image_rgb=view_rgb)
     px_paths, ink = produced if isinstance(produced, tuple) else (produced, None)
 
-    if cfg.render.outline and cfg.render.engine not in ("outline", "lineart"):
+    if cfg.render.outline and cfg.render.engine not in ("outline", "lineart", "illustration"):
         note("tracing outlines")
         px_paths = list(px_paths) + list(engines.outline.generate(
             value, coverage, canvas, cfg.pen, cfg.render,
             strength=cfg.render.outline_strength,
             features=features, feature_min=cfg.render.outline_feature_min,
-            form=form, image_rgb=img_rgb))
+            form=form, image_rgb=view_rgb))
 
     mm_paths = canvas.paths_to_mm(px_paths)
     raw_count = len(mm_paths)

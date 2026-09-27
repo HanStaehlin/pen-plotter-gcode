@@ -58,8 +58,15 @@ def build_parser() -> argparse.ArgumentParser:
                         "0 disables depth estimation entirely")
     g.add_argument("--depth-model", default="MiDaS_small",
                    choices=["MiDaS_small", "DPT_Hybrid", "DPT_Large"])
-    g.add_argument("--lines", default="coherent", choices=["coherent", "canny"],
-                   help="line extractor: flow-guided DoG, or the old detector")
+    g.add_argument("--lines", default="learned", choices=["learned", "coherent", "canny"],
+                   help="line source: learned (Informative Drawings), flow-guided DoG, or Canny")
+    g.add_argument("--line-style", default="sketch", choices=["sketch", "contour"])
+    g.add_argument("--shading", default="crosshatch",
+                   help="illustration: tone engine under the lines, or 'none'")
+    g.add_argument("--shadow", type=float, default=0.40, metavar="F",
+                   help="illustration: hatch only tones darker than this")
+    g.add_argument("--focus", type=float, default=0.40, metavar="F",
+                   help="illustration: fade shading on the background using depth")
     g.add_argument("--hatch-share", type=float, default=0.30, metavar="F",
                    help="crosshatch: coverage one direction may supply "
                         "before the next is laid across it")
@@ -184,6 +191,10 @@ def config_from_args(args) -> Config:
     cfg.render.form_weight = args.form_weight
     cfg.render.depth_model = args.depth_model
     cfg.render.line_method = args.lines
+    cfg.render.line_style = args.line_style
+    cfg.render.illustration_shading = args.shading
+    cfg.render.illustration_shadow = args.shadow
+    cfg.render.illustration_focus = args.focus
     cfg.render.hilbert_smooth = args.hilbert_smooth
     cfg.render.hilbert_detail = args.hilbert_detail
     cfg.render.flow_coherence = args.flow_coherence

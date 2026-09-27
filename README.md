@@ -23,6 +23,7 @@ python3 image_to_gcode.py --list-engines
 | Engine      | Look                                              | Pen lifts        |
 |-------------|---------------------------------------------------|------------------|
 | `flowlines` | Strokes follow the image's own structure          | many long strokes|
+| `illustration`| Learned line drawing over shadow-only hatching | fewest lifts |
 | `adaptive`  | Cross-hatch where smooth, flow lines where textured| many, mixed style|
 | `crosshatch`| Layered engraving; directions stack as tone darkens| many medium      |
 | `waves`     | One serpentine sweep; tone from how far it detours| near-continuous  |
@@ -176,6 +177,40 @@ highlight, because the tone field is chasing faint shading gradients that
 carry no real texture. `coherence_gamma` (default 2.0) sharpens the "is this
 real structure" test to make one setting serve more cases, but for very
 different subjects — a face versus a bird — it is worth adjusting by hand.
+
+### Illustration: learned lines over shadow hatching
+
+Every hand-designed line detector here (Canny, flow-guided DoG) asks "is
+there an edge"; illustrators draw only the edges that describe shape and
+identity. `illustration` uses **Informative Drawings** (Chan, Durand &
+Isola, CVPR 2022) - a small network trained so that a photo's depth and
+meaning can be recovered from its drawing - for the line layer, then adds a
+separate, lighter shading layer the way pen-and-ink work is built:
+
+- hatching only where tone is darker than `--shadow`; the paper carries the
+  light and mid tones instead of every region getting strokes;
+- shading faded on the background using MiDaS depth (`--focus`), so detail
+  goes to the subject rather than to blurred grass behind it;
+- no shading on the line pixels themselves, so layers don't double-ink.
+
+The network runs in about 0.2 s on Metal; weights (MIT) download from the
+authors' Hugging Face Space on first use. The same learned lines are now the
+default line source for the landmark overlay on every engine
+(`--lines learned|coherent|canny`).
+
+It is a different style rather than a replacement: across the seven test
+photos it plots 2-5x faster than `flowlines` with roughly half the pen lifts,
+but it deliberately gives up some tonal range. Taste decides; `--shadow` and
+`--focus` are the two controls that set how sparse it gets.
+
+### Evaluating changes
+
+    python3 evaluate.py -e flowlines illustration -o eval_out
+
+renders every photo in `Drawings/photos/` (CC0, see CREDITS.md) through the
+listed engines into side-by-side sheets plus a timing table. Tune against the
+whole set, not one image - two earlier defaults in this project were wrong
+because they were tuned on a single picture.
 
 ### Region-adaptive routing
 

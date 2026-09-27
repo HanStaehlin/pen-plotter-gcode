@@ -179,7 +179,20 @@ class RenderConfig:
     depth_model: str = "MiDaS_small"
     #: "coherent" = flow-based DoG (connected line work), "canny" = the old
     #: fixed-scale detector.
-    line_method: str = "coherent"
+    line_method: str = "learned"
+    #: Informative Drawings style: "contour" (clean single lines) or
+    #: "sketch" (bolder, with some hatching of its own).
+    line_style: str = "sketch"
+    # illustration: learned lines on top of lighter shading
+    illustration_shading: str = "crosshatch"
+    #: How much of the photograph's tone the shading layer carries under the
+    #: lines. 1 = full tone; lower leaves the lines to carry the form.
+    illustration_tone: float = 0.75
+    #: Coverage below this gets no hatching at all - only shadows are shaded.
+    illustration_shadow: float = 0.40
+    #: 0 = shade the whole frame evenly, 1 = shade only what depth says is
+    #: near.  Needs torch; ignored without it.
+    illustration_focus: float = 0.4
     # region-adaptive
     region_segments: int = 400     # approximate SLIC superpixel count
     #: How much local texture energy it takes for a region to be routed to

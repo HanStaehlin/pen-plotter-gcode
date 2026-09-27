@@ -83,7 +83,12 @@ def config_from_form() -> Config:
     cfg.render.region_threshold = _f("region_threshold", 0.25)
     cfg.render.coherence_gamma = _f("coherence_gamma", 2.0)
     cfg.render.form_weight = _f("form_weight", 0.8) if _b("use_depth") else 0.0
-    cfg.render.line_method = "coherent" if _b("coherent_lines") else "canny"
+    cfg.render.line_method = request.form.get("line_method", "learned")
+    cfg.render.line_style = request.form.get("line_style", "sketch")
+    cfg.render.illustration_shading = request.form.get("illustration_shading", "crosshatch")
+    cfg.render.illustration_shadow = _f("illustration_shadow", 0.40)
+    cfg.render.illustration_focus = _f("illustration_focus", 0.40)
+    cfg.render.illustration_tone = _f("illustration_tone", 0.75)
     cfg.render.contour_levels = _i("levels", 12)
     cfg.render.tsp_points = _i("points", 12000)
     cfg.render.hilbert_max_depth = _i("depth", 9)
@@ -557,6 +562,32 @@ HTML = r"""
           <label>Hatch directions <span class="v" id="hatch_layersV">3</span></label>
           <input type="range" id="hatch_layers" min="1" max="5" step="1" value="3">
         </div>
+        <div class="ctl" data-for="illustration">
+          <label>Shading
+            <span class="v"></span></label>
+          <select id="illustration_shading">
+            <option value="crosshatch" selected>Cross-hatch</option>
+            <option value="flowlines">Flow lines</option>
+            <option value="adaptive">Adaptive</option>
+            <option value="none">None (lines only)</option>
+          </select>
+        </div>
+        <div class="ctl" data-for="illustration">
+          <label><span>Shade only below
+            <span class="tip" title="Tones lighter than this get no hatching at all, as in pen-and-ink illustration: the paper carries the light and mid tones. Raise for a sparser drawing, lower for more tone.">i</span></span>
+            <span class="v" id="illustration_shadowV">0.40</span></label>
+          <input type="range" id="illustration_shadow" min="0" max="0.8" step="0.05" value="0.40">
+        </div>
+        <div class="ctl" data-for="illustration">
+          <label><span>Subject focus
+            <span class="tip" title="Uses depth to fade shading on the background so detail goes to the subject. Turn down for landscapes, where everything is far.">i</span></span>
+            <span class="v" id="illustration_focusV">0.40</span></label>
+          <input type="range" id="illustration_focus" min="0" max="1" step="0.05" value="0.40">
+        </div>
+        <div class="ctl" data-for="illustration">
+          <label>Shading strength <span class="v" id="illustration_toneV">0.75</span></label>
+          <input type="range" id="illustration_tone" min="0.2" max="1" step="0.05" value="0.75">
+        </div>
         <div class="ctl" data-for="adaptive">
           <label>
             <span>Texture sensitivity
@@ -630,10 +661,24 @@ HTML = r"""
 
       <section>
         <div class="sec-head"><h2>Form &amp; line</h2></div>
-        <label class="check">
-          <input type="checkbox" id="coherent_lines" checked> Coherent line tracing
-          <span class="tip" title="Flow-guided Difference of Gaussians. Looks only across the local structure, then smooths along it, so lines come out connected instead of as fragments traced up both sides of every stroke.">i</span>
-        </label>
+        <div class="ctl pair">
+          <div>
+            <label style="display:block;font-size:11.5px;color:var(--ink-2);margin-bottom:6px">Line source
+              <span class="tip" title="Learned: a network trained on artist drawings (Informative Drawings) picks the lines an illustrator would keep. Coherent: flow-guided edge detection. Canny: the old detector.">i</span></label>
+            <select id="line_method">
+              <option value="learned" selected>Learned</option>
+              <option value="coherent">Coherent</option>
+              <option value="canny">Canny</option>
+            </select>
+          </div>
+          <div>
+            <label style="display:block;font-size:11.5px;color:var(--ink-2);margin-bottom:6px">Line style</label>
+            <select id="line_style">
+              <option value="sketch" selected>Sketch</option>
+              <option value="contour">Contour</option>
+            </select>
+          </div>
+        </div>
         <label class="check">
           <input type="checkbox" id="use_depth" checked> Depth-driven form
           <span class="tip" title="Estimates depth with MiDaS on the GPU and hatches along the surface's principal curvature, so strokes wrap a form instead of ruling straight across it. Only applied where the image itself has no structure to follow, so texture is left alone. Needs PyTorch; skipped if absent.">i</span>
@@ -862,6 +907,8 @@ const FMT = {
   feature_gain:v=>(+v).toFixed(2), outline_strength:v=>(+v).toFixed(2),
   hatch_coherence:v=>(+v).toFixed(2), form_weight:v=>(+v).toFixed(2),
   region_threshold:v=>(+v).toFixed(2), region_segments:v=>v,
+  illustration_shadow:v=>(+v).toFixed(2), illustration_focus:v=>(+v).toFixed(2),
+  illustration_tone:v=>(+v).toFixed(2),
   spacing:v=>(+v===0?'auto':(+v).toFixed(1)+' mm'),
   pen:v=>(+v).toFixed(2)+' mm', contrast:v=>(+v).toFixed(1),
   detail:v=>(+v).toFixed(2), exposure:v=>(+v).toFixed(2), gamma:v=>(+v).toFixed(2),
@@ -943,12 +990,13 @@ function setFile(f) {
 const FIELDS = ['ink','angle','coherence','levels','points','depth','coarsest',
   'spacing','hatch_layers','hatch_share','hilbert_smooth','hilbert_detail',
   'feature_gain','outline_strength','hatch_coherence','form_weight',
-  'region_threshold','region_segments',
+  'region_threshold','region_segments','line_method','line_style',
+  'illustration_shading','illustration_shadow','illustration_focus','illustration_tone',
   'pen','paper','margin','contrast','detail','exposure','gamma','chroma',
   'ink_response','resolution','merge','bridge','bridge_min_ink','max_coverage',
   'feed','travel_feed'];
 const CHECKS = ['outline','portrait','rotate_out','invert','flip_x','flip_y',
-  'remove_bg','show_travel','coherent_lines','use_depth'];
+  'remove_bg','show_travel','use_depth'];
 
 $('go').addEventListener('click', async () => {
   if (!file) return;

@@ -7,13 +7,17 @@ the drawing actually reproduces the requested tone.
 
 from __future__ import annotations
 
-from . import adaptive, contours, crosshatch, flowlines, hilbert, outline, tsp, waves
+from . import (adaptive, contours, crosshatch, flowlines, hilbert,
+               illustration, outline, tsp, waves)
 
 #: name -> (callable, human description, roughly how continuous it is)
 ENGINES = {
     "flowlines": (flowlines.generate,
                   "Flow lines — strokes follow the image's own structure",
                   "many long strokes"),
+    "illustration": (illustration.generate,
+                     "Illustration — learned line drawing over lighter shading",
+                     "fewest lifts, sparse style"),
     "adaptive": (adaptive.generate,
                 "Adaptive — cross-hatch where smooth, flow lines where textured",
                 "many, style varies by region"),
@@ -48,5 +52,5 @@ def get(name: str):
     return ENGINES[name][0]
 
 
-__all__ = ["ENGINES", "get", "adaptive", "contours", "crosshatch",
+__all__ = ["ENGINES", "get", "adaptive", "contours", "illustration", "crosshatch",
            "flowlines", "hilbert", "outline", "tsp", "waves"]

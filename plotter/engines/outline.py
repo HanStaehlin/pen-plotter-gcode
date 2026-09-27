@@ -139,7 +139,26 @@ def generate(value, coverage, canvas, pen, cfg, strength: float | None = None,
         strength = getattr(cfg, "outline_strength", 0.5)
     s = float(np.clip(strength, 0.02, 1.0))
 
-    if getattr(cfg, "line_method", "canny") == "coherent":
+    method = getattr(cfg, "line_method", "canny")
+    if method == "learned":
+        from .. import learned_lines
+        if not learned_lines.available():
+            method = "coherent"        # graceful fallback without torch
+
+    if method == "learned":
+        # A network trained to draw the lines an illustrator would keep (see
+        # learned_lines.py).  Its output is already a drawing, so the only
+        # decision left is how faint a line is still worth a stroke.
+        from .. import learned_lines
+        rgb = image_rgb if image_rgb is not None else (
+            np.dstack([value] * 3) * 255).astype(np.uint8)
+        dark = learned_lines.draw(rgb, (value.shape[1], value.shape[0]),
+                                  style=getattr(cfg, "line_style", "contour"))
+        mask = dark > (0.62 - 0.42 * s)
+        edges = (mask.astype(np.uint8) * 255)
+        k = 1.0
+        feature_min = 0.0              # the network already chose the landmarks
+    elif method == "coherent":
         # Flow-based DoG: looks only across the local structure, then smooths
         # along it, so what comes back is connected line work rather than a
         # confetti of fragments traced up both sides of every stroke.

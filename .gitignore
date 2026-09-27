@@ -6,3 +6,5 @@ venv/
 *.gcode
 !Test G Code/**/*.gcode
 *_preview.png
+Drawings/photos/owl.jpg
+eval_out/
