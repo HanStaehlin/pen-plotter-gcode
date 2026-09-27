@@ -128,7 +128,7 @@ class PathConfig:
 class RenderConfig:
     """Engine selection and per-engine knobs."""
 
-    engine: str = "crosshatch"
+    engine: str = "illustration"
     spacing_mm: float = 0.0        # 0 = derive from pen width
     ink_scale: float = 1.0         # global ink multiplier (0.3 - 2.0)
     angle_deg: float = 45.0        # base direction for flat regions / hatching

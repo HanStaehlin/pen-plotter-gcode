@@ -33,7 +33,7 @@ python3 image_to_gcode.py --list-engines
 | `outline`   | Traced edges only, no shading                     | few strokes      |
 | `lineart`   | Centreline trace of an existing drawing or scan   | few strokes      |
 
-`crosshatch` is the default. `flowlines` is the other strong choice for photographs, especially heavily textured ones. `adaptive` is worth trying whenever a photograph mixes real texture with smooth shading in the same frame - a bird, an animal, a person against a plain background.
+`illustration` (learned lines over cross-hatched shadows) is the default. `crosshatch` and `flowlines` carry more of the photo's full tonal range, at 2-5x the plot time; `flowlines` suits heavily textured subjects best. `adaptive` is worth trying whenever a photograph mixes real texture with smooth shading in the same frame - a bird, an animal, a person against a plain background.
 `hilbert` and `tsp` are the ones to reach for when pen lifts really matter;
 both stay unbroken except where the paper is genuinely blank.
 
