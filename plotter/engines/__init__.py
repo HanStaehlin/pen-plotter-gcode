@@ -12,6 +12,9 @@ from . import (adaptive, contours, crosshatch, flowlines, hilbert,
 
 #: name -> (callable, human description, roughly how continuous it is)
 ENGINES = {
+    "crosshatch": (crosshatch.generate,
+                   "Cross-hatch — layered engraving that follows the form",
+                   "many medium strokes"),
     "flowlines": (flowlines.generate,
                   "Flow lines — strokes follow the image's own structure",
                   "many long strokes"),
@@ -21,9 +24,6 @@ ENGINES = {
     "adaptive": (adaptive.generate,
                 "Adaptive — cross-hatch where smooth, flow lines where textured",
                 "many, style varies by region"),
-    "crosshatch": (crosshatch.generate,
-                   "Cross-hatch — layered engraving that follows the form",
-                   "many medium strokes"),
     "waves": (waves.generate,
               "Waves — one serpentine sweep, tone from how far it detours",
               "near-continuous"),

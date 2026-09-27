@@ -31,7 +31,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help="describe the available engines and exit")
 
     g = p.add_argument_group("drawing")
-    g.add_argument("-e", "--engine", default="flowlines", choices=sorted(ENGINES),
+    g.add_argument("-e", "--engine", default="crosshatch", choices=sorted(ENGINES),
                    help="how the image is turned into strokes")
     g.add_argument("--ink", type=float, default=1.0, metavar="SCALE",
                    help="overall ink multiplier; below 1 draws lighter")
