@@ -7,7 +7,7 @@ the drawing actually reproduces the requested tone.
 
 from __future__ import annotations
 
-from . import adaptive, contours, crosshatch, flowlines, hilbert, outline, tsp, waves
+from . import adaptive, clipasso, contours, crosshatch, flowlines, hilbert, outline, tsp, waves
 
 #: name -> (callable, human description, roughly how continuous it is)
 ENGINES = {
@@ -38,6 +38,10 @@ ENGINES = {
     "lineart": (outline.generate_lineart,
                 "Line art — centreline trace of an existing drawing or scan",
                 "few strokes"),
+    "clipasso": (clipasso.generate,
+                "Sketch (experimental) — strokes optimised for recognisable "
+                "form, not tone; slow (minutes)",
+                "few, sparse, gestural"),
 }
 
 
@@ -48,5 +52,5 @@ def get(name: str):
     return ENGINES[name][0]
 
 
-__all__ = ["ENGINES", "get", "adaptive", "contours", "crosshatch",
-           "flowlines", "hilbert", "outline", "tsp", "waves"]
+__all__ = ["ENGINES", "get", "adaptive", "clipasso", "contours",
+           "crosshatch", "flowlines", "hilbert", "outline", "tsp", "waves"]

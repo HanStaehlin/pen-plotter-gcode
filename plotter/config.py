@@ -180,6 +180,10 @@ class RenderConfig:
     #: "coherent" = flow-based DoG (connected line work), "canny" = the old
     #: fixed-scale detector.
     line_method: str = "coherent"
+    # clipasso (optimisation-based sketching)
+    clipasso_strokes: int = 64
+    clipasso_iters: int = 500
+    clipasso_width: float = 0.006   # normalised stroke width during fitting
     # region-adaptive
     region_segments: int = 400     # approximate SLIC superpixel count
     #: How much local texture energy it takes for a region to be routed to

@@ -84,7 +84,7 @@ def convert(img_rgb: np.ndarray, cfg: Config, progress=None) -> Result:
 
     form = None
     depth_map = None
-    if cfg.render.form_weight > 0:
+    if cfg.render.form_weight > 0 and cfg.render.engine != "clipasso":
         if not depth_mod.available():
             note("depth model unavailable (torch not installed) — skipping form")
         else:
@@ -100,7 +100,8 @@ def convert(img_rgb: np.ndarray, cfg: Config, progress=None) -> Result:
                       features=features, form=form, image_rgb=img_rgb)
     px_paths, ink = produced if isinstance(produced, tuple) else (produced, None)
 
-    if cfg.render.outline and cfg.render.engine not in ("outline", "lineart"):
+    if (cfg.render.outline
+            and cfg.render.engine not in ("outline", "lineart", "clipasso")):
         note("tracing outlines")
         px_paths = list(px_paths) + list(engines.outline.generate(
             value, coverage, canvas, cfg.pen, cfg.render,
