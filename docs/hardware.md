@@ -74,6 +74,11 @@ segments, send-and-wait lets the planner run dry and the pen stutters.
 GRBL 0.9 has no `$J=` jog command, so jogging is `G91 G0` then `G90`, and
 the origin is a `G92` offset (it does not survive a power cycle).
 
+**Pen moves but the arrows do nothing?** Check the motor power supply. The
+pen servo runs on USB power alone, the steppers do not, and GRBL counts its
+steps whether or not the motors turn: the position readout changes and no
+error appears.
+
 `tools/fake_grbl.py` is a pretend GRBL 0.9i on a pseudo-terminal for testing
 all of this without the machine. It fails loudly if a sender overflows the
 receive buffer.
