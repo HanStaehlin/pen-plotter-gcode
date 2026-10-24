@@ -27,7 +27,8 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     p.add_argument("input", nargs="?", help="input image (PNG, JPEG, TIFF, ...)")
     p.add_argument("-o", "--output", help="output .gcode (default: <input>.gcode)")
-    p.add_argument("--draw", metavar="SUBJECT", choices=["frog"],
+    p.add_argument("--draw", metavar="SUBJECT",
+                   choices=["frog", "toad", "treefrog", "frog-above"],
                    help="generate a drawing from scratch instead of converting an image")
     p.add_argument("--seed", type=int, help="with --draw: which variation (default random)")
     p.add_argument("--list-engines", action="store_true",
