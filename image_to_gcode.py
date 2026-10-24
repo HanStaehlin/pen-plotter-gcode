@@ -69,7 +69,7 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--lines", default="learned", choices=["learned", "coherent", "canny"],
                    help="line source: learned (Informative Drawings), flow-guided DoG, or Canny")
     g.add_argument("--line-style", default="sketch", choices=["sketch", "contour"])
-    g.add_argument("--shading", default="crosshatch",
+    g.add_argument("--shading", default="flowlines",
                    help="illustration: tone engine under the lines, or 'none'")
     g.add_argument("--shadow", type=float, default=0.40, metavar="F",
                    help="illustration: hatch only tones darker than this")

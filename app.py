@@ -87,7 +87,7 @@ def config_from_form() -> Config:
     cfg.render.form_weight = _f("form_weight", 0.8) if _b("use_depth") else 0.0
     cfg.render.line_method = request.form.get("line_method", "learned")
     cfg.render.line_style = request.form.get("line_style", "sketch")
-    cfg.render.illustration_shading = request.form.get("illustration_shading", "crosshatch")
+    cfg.render.illustration_shading = request.form.get("illustration_shading", "flowlines")
     cfg.render.illustration_shadow = _f("illustration_shadow", 0.40)
     cfg.render.illustration_focus = _f("illustration_focus", 0.85)
     cfg.render.illustration_tone = _f("illustration_tone", 0.75)
@@ -607,8 +607,8 @@ HTML = r"""
           <label>Shading
             <span class="v"></span></label>
           <select id="illustration_shading">
-            <option value="crosshatch" selected>Cross-hatch</option>
-            <option value="flowlines">Flow lines</option>
+            <option value="crosshatch">Cross-hatch</option>
+            <option value="flowlines" selected>Flow lines</option>
             <option value="adaptive">Adaptive</option>
             <option value="none">None (lines only)</option>
           </select>

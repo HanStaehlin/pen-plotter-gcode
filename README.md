@@ -29,7 +29,7 @@ python3 image_to_gcode.py --list-engines
 
 | Engine         | Look                                                 | Pen lifts         |
 |----------------|------------------------------------------------------|-------------------|
-| `illustration` | Learned line drawing over shadow-only cross-hatching | fewest            |
+| `illustration` | Learned line drawing over shadow-only, form-following hatching | fewest            |
 | `crosshatch`   | Layered engraving; directions stack as tone darkens  | many medium       |
 | `flowlines`    | Strokes follow the image's own structure             | many long strokes |
 | `adaptive`     | Cross-hatch where smooth, flow lines where textured  | many, mixed       |
@@ -40,7 +40,7 @@ python3 image_to_gcode.py --list-engines
 | `outline`      | Traced edges only, no shading                        | few strokes       |
 | `lineart`      | Centreline trace of an existing drawing or scan      | few strokes       |
 
-**`illustration`** (learned lines over cross-hatched shadows) is the default.
+**`illustration`** (learned lines over form-following shadow hatching) is the default.
 `crosshatch` and `flowlines` carry more of the photo's full tonal range at 2-5×
 the plot time; `flowlines` suits heavily textured subjects best. `adaptive`
 helps when one photo mixes texture with smooth shading. `hilbert` and `tsp`

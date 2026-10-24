@@ -190,7 +190,7 @@ class RenderConfig:
     #: "sketch" (bolder, with some hatching of its own).
     line_style: str = "sketch"
     # illustration: learned lines on top of lighter shading
-    illustration_shading: str = "crosshatch"
+    illustration_shading: str = "flowlines"
     #: How much of the photograph's tone the shading layer carries under the
     #: lines. 1 = full tone; lower leaves the lines to carry the form.
     illustration_tone: float = 0.75
