@@ -12,6 +12,7 @@ the ``plotter`` package; this file is the command line around them.
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from pathlib import Path
 
@@ -30,7 +31,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--draw", metavar="SUBJECT",
                    choices=["frog", "truefrog", "toad", "treefrog", "dartfrog", "hornedfrog", "clawedfrog"],
                    help="generate a drawing from scratch instead of converting an image")
-    p.add_argument("--seed", type=int, help="with --draw: which variation (default random)")
+    p.add_argument("--name", help='with --draw: the animal\'s name, e.g. "Rana viridis"; '
+                   "the same name always gives the same drawing (default: invent one)")
+    p.add_argument("--seed", type=int, help="with --draw: pick an invented name by number")
     p.add_argument("--list-engines", action="store_true",
                    help="describe the available engines and exit")
 
@@ -227,17 +230,18 @@ def main(argv=None) -> int:
         return 0
 
     if args.draw:
-        import random
         from plotter import draw_procedural
-        seed = args.seed if args.seed is not None else random.randrange(1_000_000)
         cfg = config_from_args(args)
-        result = draw_procedural(args.draw, seed, cfg)
-        out = Path(args.output) if args.output else Path(f"{args.draw}-{seed}.gcode")
-        out.write_text(result.gcode(f"procedural {args.draw}, seed {seed}"))
+        result = draw_procedural(args.draw, args.seed, cfg, name=args.name)
+        shown = result.stats["name"]
+        slug = re.sub(r"[^a-z0-9]+", "-", shown.lower()).strip("-")
+        out = Path(args.output) if args.output else Path(f"{slug}.gcode")
+        out.write_text(result.gcode(f"{shown} ({args.draw})"))
         s = result.stats
         if not args.quiet:
-            print(f"  {args.draw} seed {seed}: {s['image_mm']}, {s['label']}, "
+            print(f"  {shown}: {s['image_mm']}, {s['label']}, "
                   f"{s['pen_lifts']} pen lifts -> {out}")
+            print(f'  redraw with:  --draw {args.draw} --name "{shown}"')
         if args.preview is not None:
             path = str(out.with_suffix("")) + "_preview.png" if args.preview == "auto" else args.preview
             cv2.imwrite(path, cv2.cvtColor(result.preview(dpi=args.dpi), cv2.COLOR_RGB2BGR))

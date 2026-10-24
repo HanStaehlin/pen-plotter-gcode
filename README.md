@@ -61,8 +61,16 @@ get warts, parotoid glands and short webbing, tree frogs get toe discs, dart
 frogs get bold stripes, network or blotch patterns, clawed frogs get tiny eyes,
 huge webbed feet and lateral-line stitches.
 
-    python3 image_to_gcode.py --draw frog --seed 7        # any family
-    python3 image_to_gcode.py --draw dartfrog --seed 3
+Like in fishdraw, the name is the seed. With no name a pseudo-Latin binomial
+is invented and the drawing is seeded from it; type that name back (any
+spelling or capitalisation) and you get the identical frog. The genus ending
+encodes the family (-rana, -bufo, -hyla, -bates, -phrys, -pipa), so a name
+reproduces its family too. The name is lettered under the drawing in a
+single-stroke Hershey font, so the plotter draws it cleanly.
+
+    python3 image_to_gcode.py --draw frog                       # invent one
+    python3 image_to_gcode.py --draw frog --name "Calopus zycuops"
+    python3 image_to_gcode.py --draw toad --name "Bufo hannesii"
 
 ![Procedural frogs](docs/frogs.jpg)
 

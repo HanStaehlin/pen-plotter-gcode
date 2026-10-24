@@ -266,10 +266,10 @@ def eye_shapes(P, rng, sign):
     eye = affinity.scale(Point(cx, cy).buffer(r, 40), 1.0, 1.12)
     iris = affinity.scale(Point(cx - r * .05, cy).buffer(r * .74, 40), 1.0, 1.12)
     kind = E["pupil"]
-    if kind == "h":
-        pupil = affinity.scale(Point(cx - r * .08, cy).buffer(r * .34, 24), .55, 1.3)
-    elif kind == "v":
-        pupil = affinity.scale(Point(cx - r * .08, cy).buffer(r * .34, 24), 1.25, .5)
+    if kind == "h":            # horizontal slit: wide, not tall
+        pupil = affinity.scale(Point(cx - r * .08, cy).buffer(r * .34, 24), 1.3, .55)
+    elif kind == "v":          # vertical slit
+        pupil = affinity.scale(Point(cx - r * .08, cy).buffer(r * .34, 24), .5, 1.25)
     elif kind == "dark":
         pupil = iris.buffer(-r * .05)
     else:

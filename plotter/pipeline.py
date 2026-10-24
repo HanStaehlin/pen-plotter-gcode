@@ -188,7 +188,8 @@ def _optimise(mm_paths, cfg: Config, note, ink_sampler=None):
     return mm_paths
 
 
-def draw_procedural(kind: str, seed: int, cfg: Config, progress=None) -> Result:
+def draw_procedural(kind: str, seed: int | None = None, cfg: Config | None = None,
+                    progress=None, name: str | None = None) -> Result:
     """Generate a drawing from scratch (no photo) and lay it out on the page.
 
     The generator works in its own millimetre space; the drawing is scaled
@@ -202,11 +203,10 @@ def draw_procedural(kind: str, seed: int, cfg: Config, progress=None) -> Result:
             progress(msg)
 
     t_start = time.perf_counter()
-    from .procedural import GENERATORS
-    if kind not in GENERATORS:
-        raise ValueError(f"unknown subject {kind!r}; expected one of {sorted(GENERATORS)}")
+    from .procedural import generate
+    cfg = cfg or Config()
     note(f"drawing a {kind}")
-    raw = GENERATORS[kind](seed)
+    raw, shown = generate(kind, name=name, seed=seed)
     pts = np.vstack(raw)
     lo = pts.min(axis=0)
     size = np.maximum(pts.max(axis=0) - lo, 1e-6)
@@ -236,6 +236,7 @@ def draw_procedural(kind: str, seed: int, cfg: Config, progress=None) -> Result:
         "used_depth": False,
         "rotated_for_bed": bool(rotated),
         "seed": seed,
+        "name": shown,
     })
     blank = np.ones((2, 2), np.float32)
     return Result(paths=mm_paths, canvas=canvas, config=cfg,

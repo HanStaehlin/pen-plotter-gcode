@@ -3,6 +3,8 @@ opencv-python>=4.8
 scipy>=1.10
 scikit-image>=0.21   # SLIC regions for the adaptive engine
 Flask>=3.0
+shapely>=2.0          # procedural frogs
+Hershey-Fonts>=2.1    # single-stroke lettering for frog names (MIT)
 
 # Optional. Depth-driven form (MiDaS) and the learned line model
 # (Informative Drawings); both run on Apple Silicon via Metal. Weights

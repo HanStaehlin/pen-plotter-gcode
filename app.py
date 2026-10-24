@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import base64
 import io
-import random
+import re
 import traceback
 
 from flask import Flask, jsonify, render_template_string, request, send_file
@@ -144,22 +144,22 @@ def generate():
 @app.route("/procedural", methods=["POST"])
 def procedural():
     kind = request.form.get("subject", "frog")
-    raw_seed = (request.form.get("seed") or "").strip()
-    seed = int(raw_seed) if raw_seed.lstrip("-").isdigit() else random.randrange(1_000_000)
+    typed = (request.form.get("name") or "").strip()
     cfg = config_from_form()
     try:
-        result = plotter.draw_procedural(kind, seed, cfg)
+        result = plotter.draw_procedural(kind, None, cfg, name=typed or None)
     except Exception as exc:
         traceback.print_exc()
         return jsonify(error=f"{type(exc).__name__}: {exc}")
-    return _respond(result, f"{kind}-{seed}.gcode", f"procedural {kind}, seed {seed}",
-                    seed=seed)
+    shown = result.stats["name"]
+    slug = re.sub(r"[^a-z0-9]+", "-", shown.lower()).strip("-")
+    return _respond(result, f"{slug}.gcode", f"{shown} ({kind})", name=shown)
 
 
-def _respond(result, name, header, **extra):
+def _respond(result, filename, header, **extra):
     global _last
     preview = result.preview(dpi=150, show_travel=_b("show_travel"))
-    _last = {"gcode": result.gcode(header), "name": name}
+    _last = {"gcode": result.gcode(header), "name": filename}
     s = result.stats
     return jsonify(
         preview=base64.b64encode(encode_png(preview)).decode(),
@@ -555,7 +555,7 @@ HTML = r"""
         <div class="or">or draw one from scratch</div>
         <div class="pair">
           <select id="subject"><option value="frog" selected>Frog (any family)</option><option value="truefrog">True frog</option><option value="toad">Toad</option><option value="treefrog">Tree frog</option><option value="dartfrog">Poison dart frog</option><option value="hornedfrog">Horned frog</option><option value="clawedfrog">Clawed frog</option></select>
-          <input type="number" id="seed" placeholder="random seed">
+          <input type="text" id="frogname" placeholder="name (blank = invent one)">
         </div>
         <button class="btn ghost" id="drawSubject" style="margin-top:8px">Draw a new one</button>
       </section>
@@ -1065,8 +1065,9 @@ $('go').addEventListener('click', () => {
 $('drawSubject').addEventListener('click', () => {
   const form = new FormData();
   form.append('subject', $('subject').value);
-  form.append('seed', $('seed').value);
-  submit('/procedural', form, d => `${$('subject').value} · seed ${d.seed}`);
+  form.append('name', $('frogname').value);
+  // Show the name it got, so the same frog can be drawn again by typing it.
+  submit('/procedural', form, d => { $('frogname').placeholder = d.name; return d.name; });
 });
 
 function show(data, label) {

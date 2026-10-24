@@ -1,10 +1,27 @@
 """Procedurally generated subjects, drawn without a source photograph."""
 
-from functools import partial
+import numpy as np
 
-from . import frog
+from . import frog, naming
 
-#: name -> fn(seed) -> list of polylines in millimetres, y down.
-#: "frog" picks a family at random; the rest pin one family.
-GENERATORS = {"frog": frog.build}
-GENERATORS.update({f: partial(frog.build, family=f) for f in frog.FAMILIES})
+#: subjects the app and CLI offer; "frog" means any family
+SUBJECTS = ("frog",) + frog.FAMILIES
+
+
+def generate(kind: str, name: str | None = None, seed: int | None = None):
+    """Draw one named frog: returns (polylines in mm with y down, name).
+
+    The name is lettered under the animal, fishdraw-style, and typing the
+    same name back reproduces the same drawing.
+    """
+    if kind not in SUBJECTS:
+        raise ValueError(f"unknown subject {kind!r}; expected one of {SUBJECTS}")
+    shown, draw_seed, family = naming.resolve(kind, frog.FAMILIES, frog.WEIGHTS,
+                                              name=name, seed=seed)
+    lines = frog.build(draw_seed, family)
+    pts = np.vstack(lines)
+    width = pts[:, 0].max() - pts[:, 0].min()
+    caption = naming.lettering(shown + ".", height=0.045 * width,
+                               centre_x=(pts[:, 0].min() + pts[:, 0].max()) / 2,
+                               top_y=pts[:, 1].max() + 0.07 * width)
+    return lines + caption, shown
