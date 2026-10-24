@@ -289,8 +289,9 @@ def main(argv=None) -> int:
             print(f"  left out   {s['pruned']} faint strokes"
                   + (f", {s['budget_cut']} more to fit {args.minutes:g} min"
                      if s["budget_cut"] else ""))
-        if s.get("tone_error") is not None:
-            print(f"  tone error {s['tone_error']:.3f} coverage RMS")
+        if s.get("likeness") is not None:
+            print(f"  likeness   {s['likeness']:.3f} SSIM at viewing distance "
+                  f"(tone off by {s['tone_error']:.3f})")
         print(f"  wrote      {out}  ({out.stat().st_size / 1024:.0f} kB, "
               f"{s['points']} points)")
         print(f"  took       {format_duration(s['elapsed_s'])}")

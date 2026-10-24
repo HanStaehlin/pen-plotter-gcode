@@ -3,7 +3,15 @@
 The six CC0 photographs in `samples/photos/` run through the three main
 engines at default settings. Each sheet shows the source, then
 `illustration`, `crosshatch` and `flowlines`, labelled with estimated plot
-time, pen lifts and metres of line drawn.
+time, likeness and pen lifts.
+
+**Likeness** is SSIM between the finished plot and the photo's tone target,
+both seen from arm's length: every G-code path is drawn at the pen's real
+width, then both images are blurred by 1 mm (`plotter/quality.py`). Read it
+next to plot time to see what a change buys per minute. Compare it within an
+engine, not across engines: `illustration` deliberately leaves light and mid
+tones to the paper, so it scores far below the dense tone engines even where
+it looks better.
 
 Regenerate with:
 
@@ -38,23 +46,23 @@ wrong because they were tuned on a single picture.
 
 ## Numbers
 
-| photo | engine | plot time | lifts | drawn m | compute s |
-|---|---|---|---|---|---|
-| car_grille | illustration | 27m 52s | 1013 | 25.9 | 5.7 |
-| car_grille | crosshatch | 1h 11m | 1840 | 85.9 | 4.2 |
-| car_grille | flowlines | 58m 01s | 1283 | 94.7 | 3.1 |
-| cat_tabby | illustration | 21m 08s | 504 | 14.4 | 2.0 |
-| cat_tabby | crosshatch | 58m 31s | 2532 | 51.3 | 2.9 |
-| cat_tabby | flowlines | 57m 01s | 2412 | 52.9 | 2.7 |
-| dog_ottawa | illustration | 22m 59s | 696 | 17.7 | 2.0 |
-| dog_ottawa | crosshatch | 56m 57s | 1342 | 71.5 | 3.3 |
-| dog_ottawa | flowlines | 54m 24s | 1353 | 75.6 | 3.0 |
-| landscape_lake | illustration | 24m 46s | 796 | 20.0 | 2.1 |
-| landscape_lake | crosshatch | 1h 05m | 1569 | 81.7 | 3.7 |
-| landscape_lake | flowlines | 55m 15s | 1263 | 81.8 | 3.0 |
-| portrait_beard | illustration | 15m 53s | 418 | 11.8 | 1.7 |
-| portrait_beard | crosshatch | 33m 23s | 845 | 36.8 | 2.2 |
-| portrait_beard | flowlines | 32m 06s | 834 | 38.6 | 2.1 |
-| portrait_elderly | illustration | 10m 30s | 378 | 9.6 | 1.3 |
-| portrait_elderly | crosshatch | 30m 26s | 804 | 36.8 | 2.2 |
-| portrait_elderly | flowlines | 26m 47s | 744 | 38.1 | 1.9 |
+| photo | engine | plot time | likeness | tone error | lifts | drawn m | compute s |
+|---|---|---|---|---|---|---|---|
+| car_grille | illustration | 25m 32s | 0.241 | 0.396 | 904 | 23.8 | 6.7 |
+| car_grille | crosshatch | 1h 17m | 0.711 | 0.078 | 1819 | 93.6 | 4.9 |
+| car_grille | flowlines | 58m 01s | 0.665 | 0.087 | 1283 | 94.7 | 3.4 |
+| cat_tabby | illustration | 20m 19s | 0.103 | 0.194 | 463 | 13.9 | 2.2 |
+| cat_tabby | crosshatch | 1h 00m | 0.679 | 0.058 | 2548 | 52.9 | 3.2 |
+| cat_tabby | flowlines | 57m 01s | 0.648 | 0.062 | 2412 | 52.9 | 3.0 |
+| dog_ottawa | illustration | 19m 12s | 0.137 | 0.381 | 507 | 14.8 | 2.2 |
+| dog_ottawa | crosshatch | 59m 02s | 0.739 | 0.076 | 1316 | 74.9 | 3.9 |
+| dog_ottawa | flowlines | 54m 24s | 0.681 | 0.079 | 1353 | 75.6 | 3.5 |
+| landscape_lake | illustration | 19m 31s | 0.111 | 0.463 | 477 | 15.6 | 2.5 |
+| landscape_lake | crosshatch | 1h 08m | 0.723 | 0.089 | 1566 | 86.5 | 4.3 |
+| landscape_lake | flowlines | 55m 15s | 0.647 | 0.105 | 1263 | 81.8 | 3.3 |
+| portrait_beard | illustration | 14m 54s | 0.266 | 0.320 | 383 | 10.9 | 1.9 |
+| portrait_beard | crosshatch | 34m 53s | 0.803 | 0.072 | 833 | 38.8 | 2.4 |
+| portrait_beard | flowlines | 32m 06s | 0.761 | 0.074 | 834 | 38.6 | 2.3 |
+| portrait_elderly | illustration | 9m 51s | 0.225 | 0.405 | 361 | 9.0 | 1.4 |
+| portrait_elderly | crosshatch | 32m 13s | 0.800 | 0.091 | 779 | 39.6 | 2.4 |
+| portrait_elderly | flowlines | 26m 47s | 0.753 | 0.096 | 744 | 38.1 | 2.1 |

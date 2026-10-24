@@ -68,6 +68,27 @@ move. Feed rate alone is useless (a machine at 400 mm/s² never reaches
 just as wrong — it would price the Hilbert curve, which is nothing but corners,
 at triple its real cost.
 
+## Crossing layers
+
+Strokes of one direction sit side by side, so their coverage adds. A second
+direction lands as often on ink as on paper: two 50% layers cover 75%, not
+100%. Cross-hatch therefore starts each new direction as a fresh layer that
+combines with what is already down as 1 − (1 − b)(1 − l). Counting it
+linearly left cross-hatched darks about 0.04 too light; the fix costs about
+6% more plot time on `crosshatch` and nothing on `illustration`, which
+rarely stacks layers.
+
+## Judging the result
+
+`plotter/quality.py` scores the finished G-code rather than the engine's own
+bookkeeping: every path drawn at the pen's real width, drawing and tone
+target both blurred by 1 mm (arm's length), then compared by SSIM
+("likeness") and mean coverage difference ("tone error"). OpenCV only draws
+odd line widths plus an antialiasing fringe, so the rendering resolution is
+chosen to make one of those widths exactly the pen; asking for "4 px" would
+overstate ink by a third. This runs after pruning and the time budget, so it
+shows what they cost.
+
 ## Time budget and pruning
 
 Plot time is treated as a budget rather than only reported. Every stroke gets

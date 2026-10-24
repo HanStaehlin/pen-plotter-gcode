@@ -79,6 +79,8 @@ class InkBuffer:
         #: Cross-hatching uses it to hand the remaining tone to the next angle
         #: instead of letting one direction darken everything on its own.
         self.cap: float | None = None
+        self._base: np.ndarray | None = None
+        self._layer: np.ndarray | None = None
         # Acuity: how tightly tone should be measured here.  1 means "this is
         # a thin dark landmark, judge it on its own"; 0 means "ordinary
         # shading, average it over the full spacing".
@@ -110,6 +112,18 @@ class InkBuffer:
         if self.cap is not None and target > self.cap:
             target = self.cap
         return bool(target - self.ink[by, bx] > max(floor, frac * target))
+
+    def new_layer(self) -> None:
+        """Start a pass in a new direction, which combines with the old as a union.
+
+        Strokes of one direction sit side by side, so their coverage adds.
+        A second direction lands as often on ink as on paper: two 50% layers
+        cover 75%, not 100%.  Counting it linearly leaves cross-hatched darks
+        too light, so from here the new layer's coverage ``l`` combines with
+        what was down before, ``b``, as 1 - (1 - b)(1 - l).
+        """
+        self._base = np.minimum(self.ink, 1.0)
+        self._layer = np.zeros_like(self.ink)
 
     def deficit_map(self) -> np.ndarray:
         target = self.target if self.cap is None else np.minimum(self.target, self.cap)
@@ -178,9 +192,11 @@ class InkBuffer:
         if stamp > 1e-9:
             length = float(np.hypot(*np.diff(pts, axis=0).T).sum())
             view *= length / stamp
-            self.ink[y0:y1, x0:x1] += view
+            if self._layer is None:
+                self.ink[y0:y1, x0:x1] += view
+            else:
+                layer = self._layer[y0:y1, x0:x1]
+                layer += view
+                self.ink[y0:y1, x0:x1] = 1.0 - (
+                    (1.0 - self._base[y0:y1, x0:x1]) * (1.0 - np.minimum(layer, 1.0)))
         view[:] = 0.0
-
-    def coverage_error(self) -> float:
-        """Mean absolute tone error, in coverage units - a quality readout."""
-        return float(np.abs(np.clip(self.ink, 0, 1) - self.target).mean())

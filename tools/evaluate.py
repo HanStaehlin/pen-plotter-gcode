@@ -66,10 +66,11 @@ def main():
             m = int(cfg.page.margin_mm / 25.4 * 120)
             prev = cv2.cvtColor(prev[m:-m, m:-m], cv2.COLOR_RGB2BGR)
             tiles.append(label(fit(prev, args.height), eng,
-                               f"{s['label']}  {s['pen_lifts']} lifts  {s['draw_dist_m']:.0f} m"))
-            rows.append((name, eng, s["label"], s["pen_lifts"], s["draw_dist_m"], cpu))
-            print(f"{name:20s} {eng:13s} {s['label']:>9s} {s['pen_lifts']:6d} lifts "
-                  f"{s['draw_dist_m']:6.1f} m  {cpu:5.1f}s", flush=True)
+                               f"{s['label']}  likeness {s['likeness']:.2f}  {s['pen_lifts']} lifts"))
+            rows.append((name, eng, s["label"], s["likeness"], s["tone_error"],
+                         s["pen_lifts"], s["draw_dist_m"], cpu))
+            print(f"{name:20s} {eng:13s} {s['label']:>9s} likeness {s['likeness']:.3f} "
+                  f"{s['pen_lifts']:6d} lifts {s['draw_dist_m']:6.1f} m  {cpu:5.1f}s", flush=True)
         gap = np.full((args.height + 44, 8, 3), 235, np.uint8)
         sheet = tiles[0]
         for t in tiles[1:]:
@@ -77,9 +78,11 @@ def main():
         cv2.imwrite(os.path.join(args.out, f"{name}.jpg"), sheet, [cv2.IMWRITE_JPEG_QUALITY, 90])
 
     with open(os.path.join(args.out, "summary.md"), "w") as f:
-        f.write("| photo | engine | plot time | lifts | drawn m | compute s |\n|---|---|---|---|---|---|\n")
+        f.write("| photo | engine | plot time | likeness | tone error | lifts | drawn m | compute s |\n"
+                "|---|---|---|---|---|---|---|---|\n")
         for r in rows:
-            f.write(f"| {r[0]} | {r[1]} | {r[2]} | {r[3]} | {r[4]:.1f} | {r[5]:.1f} |\n")
+            f.write(f"| {r[0]} | {r[1]} | {r[2]} | {r[3]:.3f} | {r[4]:.3f} | {r[5]} "
+                    f"| {r[6]:.1f} | {r[7]:.1f} |\n")
     print(f"\nwrote {args.out}/")
 
 

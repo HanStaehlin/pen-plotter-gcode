@@ -9,6 +9,7 @@ import numpy as np
 
 from . import budget
 from . import depth as depth_mod
+from . import quality
 from . import engines, gcode, paths as P, tone, transform
 from .config import Config
 from .geometry import Canvas
@@ -109,7 +110,7 @@ def convert(img_rgb: np.ndarray, cfg: Config, progress=None) -> Result:
                       features=features, form=form, image_rgb=view_rgb)
     if not isinstance(produced, tuple):
         produced = (produced, None)
-    px_paths, ink = produced[0], produced[1]
+    px_paths = produced[0]
     # Engines that rank their own strokes return the scores as well; only
     # those are pruned, since for the rest a low score just means "light
     # tone", which is still wanted.
@@ -141,13 +142,17 @@ def convert(img_rgb: np.ndarray, cfg: Config, progress=None) -> Result:
 
     note("estimating")
     stats = gcode.estimate_time(mm_paths, cfg)
+    look = quality.assess(mm_paths, canvas, coverage, cfg.pen.width_mm)
     stats.update({
         "strokes": len(mm_paths),
         "strokes_before_merge": raw_count,
         "travel_unoptimised_m": raw_travel / 1000.0,
         "points": int(sum(len(p) for p in mm_paths)),
         "image_mm": f"{canvas.width_mm:.0f} × {canvas.height_mm:.0f} mm",
-        "tone_error": float(ink.coverage_error()) if ink is not None else None,
+        # Scored on the finished paths, after pruning and the budget, at
+        # real pen width and viewing distance (quality.py).
+        "likeness": look["likeness"],
+        "tone_error": look["tone_error"],
         "elapsed_s": time.perf_counter() - t_start,
         "resolution": resolution,
         "pen_px": cfg.pen.width_mm * canvas.px_per_mm,
@@ -248,6 +253,7 @@ def draw_procedural(kind: str, seed: int | None = None, cfg: Config | None = Non
         "travel_unoptimised_m": raw_travel / 1000.0,
         "points": int(sum(len(p) for p in mm_paths)),
         "image_mm": f"{canvas.width_mm:.0f} × {canvas.height_mm:.0f} mm",
+        "likeness": None,
         "tone_error": None,
         "elapsed_s": time.perf_counter() - t_start,
         "resolution": 0,

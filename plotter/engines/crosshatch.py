@@ -44,6 +44,8 @@ def generate(value, coverage, canvas, pen, cfg, features=None, form=None,
     paths: list[np.ndarray] = []
     for i, offset in enumerate(offsets, start=1):
         ink.cap = min(1.0, i * share)
+        if i > 1:
+            ink.new_layer()
         rotated = _rotate(base, offset)
         paths.extend(flowlines.fill(rotated, ink, canvas, pen, cfg,
                                     seed=9000 + i * 137))

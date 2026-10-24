@@ -178,6 +178,8 @@ def _respond(result, filename, header, **extra):
             "kb": round(len(_last["gcode"]) / 1024),
             "tone_error": (None if s["tone_error"] is None
                            else round(s["tone_error"], 3)),
+            "likeness": (None if s.get("likeness") is None
+                         else round(s["likeness"], 3)),
             "rotated": s["rotated_for_bed"],
             "resolution": s["resolution"],
             "asked_resolution": _i("resolution", 1100),
@@ -917,7 +919,7 @@ HTML = r"""
         <div><dt>Pen lifts</dt><dd id="mLifts">—</dd><div class="delta" id="dLifts"></div></div>
         <div><dt>Drawn</dt><dd id="mDraw">—</dd><div class="delta" id="dDraw"></div></div>
         <div><dt>Travel</dt><dd id="mTravel">—</dd><div class="delta" id="dTravel"></div></div>
-        <div><dt>Tone error</dt><dd id="mTone">—</dd><div class="delta">coverage rms</div></div>
+        <div><dt title="How closely the finished plot matches the photo's tone when seen from arm's length (SSIM, 1 = identical). Compare it between settings of one engine: illustration leaves light tones to the paper on purpose, so it scores lower than the dense engines even where it looks better.">Likeness</dt><dd id="mTone">—</dd><div class="delta" id="dTone">viewed at arm's length</div></div>
         <div><dt>G-code</dt><dd id="mFile">—</dd><div class="delta" id="dPoints"></div></div>
       </dl>
     </div>
@@ -1097,7 +1099,9 @@ function show(data, label) {
   $('dDraw').textContent = 'pen down ' + s.draw_time;
   $('mTravel').innerHTML = s.travel_m + '<span class="unit">m</span>';
   $('dTravel').textContent = 'from ' + s.travel_raw_m + ' m unordered';
-  $('mTone').textContent = s.tone_error === null ? '—' : s.tone_error.toFixed(3);
+  $('mTone').textContent = s.likeness === null ? '—' : s.likeness.toFixed(2);
+  $('dTone').textContent = s.tone_error === null ? "viewed at arm's length"
+    : 'tone off by ' + s.tone_error.toFixed(2);
   $('mFile').innerHTML = s.kb + '<span class="unit">kB</span>';
   $('dPoints').textContent =
     s.points.toLocaleString('en-US').replace(/,/g, ' ') + ' points';
