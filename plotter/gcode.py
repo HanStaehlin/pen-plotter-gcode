@@ -67,7 +67,7 @@ def estimate_time(paths, cfg: Config) -> dict:
     m = cfg.machine
     v_draw = m.feed_draw / 60.0            # mm/s
     v_travel = m.feed_travel / 60.0
-    accel = max(1.0, m.accel_mm_s2)
+    accel = max(1.0, m.accel_mm_s2 * m.accel_efficiency)
 
     draw_mm = 0.0
     draw_s = 0.0

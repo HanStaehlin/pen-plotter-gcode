@@ -110,7 +110,7 @@ def select(mm_paths, scores, cfg, finish, minutes: float = 0.0,
     dwell = m.pen_up_dwell + m.pen_down_dwell
     v = m.feed_draw / 60.0
     cost = np.array([gcode._path_time(np.asarray(mm_paths[i], float), v,
-                                      max(1.0, m.accel_mm_s2),
+                                      max(1.0, m.accel_mm_s2 * m.accel_efficiency),
                                       m.junction_deviation)[1] + dwell
                      for i in order])
     cum = np.cumsum(cost)

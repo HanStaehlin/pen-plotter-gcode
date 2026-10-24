@@ -77,10 +77,15 @@ class MachineConfig:
     pen_up_dwell: float = 0.15     # seconds
     pen_down_dwell: float = 0.15
     #: Time each pen lift costs beyond its two dwells and the moves - the
-    #: firmware stops and restarts around every pen command.  Measured on the
-    #: AX4: a 513-lift plot ran 80 s past an estimate without it.  The speed
-    #: test re-measures it into machine.json.
-    lift_overhead_s: float = 0.15
+    #: firmware stops and restarts around every pen command.  The speed test
+    #: measures it into machine.json; 0.08 s on the AX4.
+    lift_overhead_s: float = 0.08
+    #: How much of the configured acceleration the machine really gets.  The
+    #: AX4 is CoreXY: GRBL 0.9 limits acceleration per motor, and a move
+    #: along X or Y drives both motors, so it gets less than the setting.
+    #: Fitted on the AX4's speed test and a full plot: 0.75 (close to
+    #: 1/sqrt 2), which took a whole-plot estimate from 17% short to 2%.
+    accel_efficiency: float = 0.75
     precision: int = 3             # decimals in coordinates
 
 

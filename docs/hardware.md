@@ -52,9 +52,17 @@ invisible while plotting but shift everything after them, so where the second
 square no longer lands on the first, the motors skipped: keep the fastest
 clean block. Choosing it writes `$120`/`$121`/`$11` to the firmware and
 `machine.json`; until then the original settings are restored after the test.
-Each part is timed on its own, which also measures the fixed cost per pen
-lift the estimate needs (0.15 s on the AX4, from a 513-lift plot that ran
-80 s past an estimate without it).
+Each part is timed on its own, which calibrates the plot-time estimate.
+On the AX4 the first run chose 1500 mm/s² and 0.04 mm (squares still
+aligned, about 20% faster than the shipped 600 / 0.01), and showed two
+things the estimate had missed:
+
+- every pen lift costs about 0.08 s beyond its dwells;
+- the machine gets about 0.75 of the configured acceleration. It is
+  CoreXY, and GRBL 0.9 limits acceleration per motor, so a move along one
+  axis, which drives both motors, gets less (1/√2 in the worst case).
+
+With both, a real 7m 55s plot is estimated at 7m 46s; before, 6m 34s.
 
 Raise `$120/$121` and `$11` only as far as the machine draws cleanly.
 Connecting from the app reads them back into `machine.json`, so plot-time
