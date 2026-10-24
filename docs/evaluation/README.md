@@ -48,21 +48,21 @@ wrong because they were tuned on a single picture.
 
 | photo | engine | plot time | likeness | tone error | lifts | drawn m | compute s |
 |---|---|---|---|---|---|---|---|
-| car_grille | illustration | 25m 04s | 0.233 | 0.399 | 886 | 23.3 | 6.0 |
-| car_grille | crosshatch | 1h 17m | 0.715 | 0.079 | 1906 | 93.2 | 5.1 |
-| car_grille | flowlines | 57m 52s | 0.665 | 0.088 | 1302 | 94.2 | 3.6 |
-| cat_tabby | illustration | 20m 14s | 0.102 | 0.194 | 463 | 13.9 | 2.5 |
-| cat_tabby | crosshatch | 1h 00m | 0.679 | 0.059 | 2561 | 53.0 | 3.3 |
-| cat_tabby | flowlines | 57m 56s | 0.653 | 0.061 | 2521 | 53.0 | 3.2 |
-| dog_ottawa | illustration | 19m 11s | 0.136 | 0.381 | 495 | 14.8 | 2.4 |
-| dog_ottawa | crosshatch | 59m 23s | 0.740 | 0.075 | 1324 | 75.1 | 3.8 |
-| dog_ottawa | flowlines | 53m 52s | 0.680 | 0.079 | 1285 | 75.6 | 3.6 |
-| landscape_lake | illustration | 19m 39s | 0.109 | 0.464 | 503 | 15.5 | 2.9 |
-| landscape_lake | crosshatch | 1h 08m | 0.731 | 0.089 | 1567 | 86.4 | 4.3 |
-| landscape_lake | flowlines | 55m 15s | 0.644 | 0.104 | 1251 | 81.8 | 3.6 |
-| portrait_beard | illustration | 14m 44s | 0.261 | 0.321 | 373 | 10.8 | 2.2 |
-| portrait_beard | crosshatch | 34m 40s | 0.804 | 0.071 | 811 | 38.9 | 2.6 |
-| portrait_beard | flowlines | 31m 56s | 0.755 | 0.074 | 819 | 38.4 | 2.5 |
-| portrait_elderly | illustration | 9m 49s | 0.227 | 0.404 | 348 | 9.1 | 1.7 |
-| portrait_elderly | crosshatch | 32m 48s | 0.799 | 0.093 | 811 | 39.7 | 2.7 |
-| portrait_elderly | flowlines | 26m 32s | 0.753 | 0.096 | 739 | 38.0 | 2.2 |
+| car_grille | illustration | 25m 59s | 0.194 | 0.423 | 1431 | 19.2 | 5.5 |
+| car_grille | crosshatch | 1h 12m | 0.706 | 0.079 | 1216 | 93.7 | 5.5 |
+| car_grille | flowlines | 55m 10s | 0.664 | 0.088 | 1024 | 93.9 | 4.2 |
+| cat_tabby | illustration | 10m 57s | 0.075 | 0.227 | 545 | 5.6 | 2.0 |
+| cat_tabby | crosshatch | 49m 00s | 0.689 | 0.052 | 2203 | 46.5 | 3.2 |
+| cat_tabby | flowlines | 46m 30s | 0.660 | 0.056 | 2140 | 46.5 | 3.1 |
+| dog_ottawa | illustration | 13m 56s | 0.101 | 0.408 | 708 | 8.5 | 2.2 |
+| dog_ottawa | crosshatch | 54m 27s | 0.740 | 0.074 | 1416 | 70.5 | 4.3 |
+| dog_ottawa | flowlines | 48m 26s | 0.679 | 0.078 | 1309 | 71.0 | 3.9 |
+| landscape_lake | illustration | 14m 55s | 0.087 | 0.491 | 742 | 9.7 | 2.2 |
+| landscape_lake | crosshatch | 1h 00m | 0.734 | 0.086 | 1153 | 82.9 | 4.6 |
+| landscape_lake | flowlines | 48m 15s | 0.645 | 0.102 | 989 | 78.0 | 3.7 |
+| portrait_beard | illustration | 13m 06s | 0.238 | 0.344 | 625 | 8.1 | 2.1 |
+| portrait_beard | crosshatch | 30m 27s | 0.804 | 0.070 | 615 | 37.1 | 2.6 |
+| portrait_beard | flowlines | 27m 56s | 0.754 | 0.073 | 673 | 36.5 | 2.5 |
+| portrait_elderly | illustration | 7m 09s | 0.126 | 0.458 | 382 | 5.0 | 1.5 |
+| portrait_elderly | crosshatch | 31m 11s | 0.798 | 0.093 | 651 | 39.5 | 2.8 |
+| portrait_elderly | flowlines | 25m 04s | 0.751 | 0.095 | 610 | 37.8 | 2.3 |

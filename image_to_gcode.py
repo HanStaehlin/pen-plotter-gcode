@@ -73,7 +73,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help="illustration: tone engine under the lines, or 'none'")
     g.add_argument("--shadow", type=float, default=0.40, metavar="F",
                    help="illustration: hatch only tones darker than this")
-    g.add_argument("--focus", type=float, default=0.40, metavar="F",
+    g.add_argument("--focus", type=float, default=0.85, metavar="F",
                    help="illustration: fade shading on the background using depth")
     g.add_argument("--hatch-share", type=float, default=0.30, metavar="F",
                    help="crosshatch: coverage one direction may supply "

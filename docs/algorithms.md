@@ -198,8 +198,12 @@ separate, lighter shading layer the way pen-and-ink work is built:
 
 - hatching only where tone is darker than `--shadow`; the paper carries the
   light and mid tones instead of every region getting strokes;
-- shading faded on the background using depth (`--focus`), so detail
-  goes to the subject rather than to blurred grass behind it;
+- shading faded on the background using depth (`--focus`, default 0.85), so
+  detail goes to the subject rather than to blurred grass or a night sky
+  behind it. The default was 0.4 while depth came from MiDaS, whose blurry
+  subject mask made a strong fade risky; with Depth Anything the subject's
+  edge is sharp, and on a close-up portrait against a dark background 0.4
+  still let the background hatching bury the face;
 - no shading on the line pixels themselves, so layers don't double-ink;
 - a shadow band on the side of the subject facing away from a virtual light
   (`illustration_rim`, `illustration_light_deg`), after LingDong's
@@ -209,6 +213,18 @@ separate, lighter shading layer the way pen-and-ink work is built:
 - hatch strokes start at a random point up to half their length in from the
   lit end (`illustration_fade`), so shading thins out instead of stopping
   on a hard edge - also from fishdraw.
+
+Turning the network's drawing into strokes needs care. Its marks are soft
+and thick, and thresholding leaves pinholes inside them; thinning wraps
+around each pinhole, so an eyelid came back as a chain of tiny loops. Holes
+under 0.5 mm² are filled first. Where marks crowd into a solid patch (a
+beard, curls) the centreline of the patch is a honeycomb, so the threshold
+rises with local mark density and only the strongest strands become lines.
+
+Pen-down bridging (see *Pen lifts*) judges a gap by the ink actually drawn
+around it, not by the photo's tone. This engine hatches only shadows, so
+the photo said "dark" over forehead and cheek mid-tones while the paper there
+was nearly blank, and every bridge showed as a zigzag across the face.
 
 The network runs in about 0.2 s on Metal; weights (MIT) download from the
 authors' Hugging Face Space on first use. The same learned lines are now the

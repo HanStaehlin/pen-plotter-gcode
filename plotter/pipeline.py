@@ -5,6 +5,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field as dc_field, replace
 
+import cv2
 import numpy as np
 
 from . import budget
@@ -133,10 +134,9 @@ def convert(img_rgb: np.ndarray, cfg: Config, progress=None) -> Result:
     scores = [scores[i] for i in keep]
     raw_count = len(mm_paths)
     raw_travel = P.travel_length(mm_paths)   # unordered, unwelded
-    sampler = _ink_sampler(coverage, canvas)
     mm_paths, cut = budget.select(
         mm_paths, scores, cfg,
-        finish=lambda ps: _optimise(ps, cfg, note, sampler),
+        finish=lambda ps: _optimise(ps, cfg, note, _drawn_sampler(ps, canvas, cfg)),
         minutes=cfg.paths.time_limit_min,
         prune_below=cfg.paths.prune_below if ranked else 0.0, note=note)
 
@@ -268,8 +268,28 @@ def draw_procedural(kind: str, seed: int | None = None, cfg: Config | None = Non
                   value=blank, coverage=1.0 - blank, stats=stats)
 
 
+def _drawn_sampler(mm_paths, canvas: Canvas, cfg: Config):
+    """How dark the drawing itself is at machine-millimetre points, for bridging.
+
+    A pen-down bridge is only hidden where the strokes around it are dense.
+    Asking the photo's tone target instead is wrong whenever an engine draws
+    less than the target - illustration hatches only the shadows - and there
+    every bridge over a mid-tone lands on bare paper as a visible zigzag.
+    """
+    if cfg.paths.bridge_max_mm <= 0 or not mm_paths:
+        return None
+    drawn, px_per_mm = quality.render(mm_paths, canvas, cfg.pen.width_mm)
+    drawn = cv2.resize(quality.viewed(drawn, px_per_mm, BRIDGE_SIGMA_MM),
+                       (canvas.w_px, canvas.h_px), interpolation=cv2.INTER_AREA)
+    return _ink_sampler(drawn, canvas)
+
+
+#: Neighbourhood a bridge is judged over: about two hatch spacings in shadow.
+BRIDGE_SIGMA_MM = 0.6
+
+
 def _ink_sampler(coverage: np.ndarray, canvas: Canvas):
-    """Sample the ink target at machine-millimetre points, for bridging."""
+    """Sample a coverage map at machine-millimetre points, for bridging."""
     h, w = coverage.shape
 
     def sample(pts_mm: np.ndarray) -> np.ndarray:

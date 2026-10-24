@@ -13,6 +13,12 @@ from __future__ import annotations
 import cv2
 import numpy as np
 
+#: Gaps inside a stroke smaller than this (mm^2 on paper) are filled before
+#: thinning; the pen is 0.4 mm, so nothing this small can be drawn as a gap.
+HOLE_MM2 = 0.5
+#: How far the line threshold rises where marks crowd into a solid patch.
+CROWD_GAIN = 0.4
+
 # 8-neighbourhood, ordered so opposite directions are 4 apart.
 _NEIGHBOURS = ((-1, -1), (-1, 0), (-1, 1), (0, 1),
                (1, 1), (1, 0), (1, -1), (0, -1))
@@ -52,6 +58,23 @@ def skeleton(mask: np.ndarray) -> np.ndarray:
         if not changed:
             break
     return img
+
+
+def fill_holes(mask: np.ndarray, max_area: float) -> np.ndarray:
+    """Close pinholes in a stroke mask before thinning.
+
+    A thick stroke from the line network is rarely solid once thresholded:
+    a few pixels inside it fall just under the cut.  Thinning wraps around
+    every such pinhole, so the centreline comes out as a chain of tiny loops
+    - beads along every eyelid - and dense marks like a beard become a mesh.
+    """
+    inv = (mask == 0).astype(np.uint8)
+    n, labels, stats, _ = cv2.connectedComponentsWithStats(inv, connectivity=4)
+    small = stats[:, cv2.CC_STAT_AREA] <= max_area
+    small[0] = False if stats[0, cv2.CC_STAT_AREA] > max_area else small[0]
+    out = mask.copy()
+    out[small[labels] & (inv > 0)] = 255
+    return out
 
 
 def trace(skel: np.ndarray, min_px: int = 6) -> list[np.ndarray]:
@@ -158,7 +181,14 @@ def generate(value, coverage, canvas, pen, cfg, strength: float | None = None,
             np.dstack([value] * 3) * 255).astype(np.uint8)
         dark = learned_lines.draw(rgb, (value.shape[1], value.shape[0]),
                                   style=getattr(cfg, "line_style", "contour"))
-        mask = dark > (0.62 - 0.42 * s)
+        cut = 0.62 - 0.42 * s
+        # Where the network's marks crowd together - a beard, curls, dense
+        # shadow - the thresholded mask turns solid, and the centreline of a
+        # solid patch is a honeycomb, not hair.  Raising the cut there keeps
+        # only the strongest strands; the shading layer carries the tone.
+        crowd = cv2.GaussianBlur((dark > cut).astype(np.float32), (0, 0),
+                                 max(1.0, 1.5 * px_per_mm))
+        mask = dark > cut + CROWD_GAIN * np.clip((crowd - 0.3) / 0.4, 0.0, 1.0)
         weight = dark
         edges = (mask.astype(np.uint8) * 255)
         k = 1.0
@@ -201,6 +231,7 @@ def generate(value, coverage, canvas, pen, cfg, strength: float | None = None,
         # No drawn darkness to go on; how dark the photo is under the line
         # is the nearest stand-in.
         weight = 1.0 - value
+    edges = fill_holes(edges, HOLE_MM2 * (px_per_mm / k) ** 2)
     skel = skeleton(edges)
     paths = trace(skel, min_px=4)
 

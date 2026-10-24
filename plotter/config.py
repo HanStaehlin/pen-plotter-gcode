@@ -198,7 +198,7 @@ class RenderConfig:
     illustration_shadow: float = 0.40
     #: 0 = shade the whole frame evenly, 1 = shade only what depth says is
     #: near.  Needs torch; ignored without it.
-    illustration_focus: float = 0.4
+    illustration_focus: float = 0.85
     #: Shadow-side band on each outlined shape (fishdraw's crescent shading).
     illustration_rim: float = 0.45     # 0 disables; needs torch (depth)
     illustration_rim_mm: float = 6.0   # band width on paper

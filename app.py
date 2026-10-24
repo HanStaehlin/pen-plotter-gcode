@@ -88,7 +88,7 @@ def config_from_form() -> Config:
     cfg.render.line_style = request.form.get("line_style", "sketch")
     cfg.render.illustration_shading = request.form.get("illustration_shading", "crosshatch")
     cfg.render.illustration_shadow = _f("illustration_shadow", 0.40)
-    cfg.render.illustration_focus = _f("illustration_focus", 0.40)
+    cfg.render.illustration_focus = _f("illustration_focus", 0.85)
     cfg.render.illustration_tone = _f("illustration_tone", 0.75)
     cfg.render.contour_levels = _i("levels", 12)
     cfg.render.tsp_points = _i("points", 12000)
@@ -615,8 +615,8 @@ HTML = r"""
         <div class="ctl" data-for="illustration">
           <label><span>Subject focus
             <span class="tip" title="Uses depth to fade shading on the background so detail goes to the subject. Turn down for landscapes, where everything is far.">i</span></span>
-            <span class="v" id="illustration_focusV">0.40</span></label>
-          <input type="range" id="illustration_focus" min="0" max="1" step="0.05" value="0.40">
+            <span class="v" id="illustration_focusV">0.85</span></label>
+          <input type="range" id="illustration_focus" min="0" max="1" step="0.05" value="0.85">
         </div>
         <div class="ctl" data-for="illustration">
           <label>Shading strength <span class="v" id="illustration_toneV">0.75</span></label>
