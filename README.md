@@ -85,6 +85,18 @@ Parts are closed polygons drawn front to back, each clipped by what is in
 front of it, and shaded fishdraw's way: hatch the part of each shape not
 covered by a copy shifted toward the light. Generation takes 0.1-1 s.
 
+## Tests
+
+```
+pip install -r requirements-dev.txt
+python3 -m pytest
+```
+
+About 80 tests, around 90 seconds, no GPU and no model downloads: pipeline
+tests use the classical line tracer with depth off, and the USB sender is
+tested against `tools/fake_grbl.py`, a pretend GRBL 0.9i on a
+pseudo-terminal that fails if the 127-byte receive buffer ever overflows.
+
 ## Repository layout
 
 ```

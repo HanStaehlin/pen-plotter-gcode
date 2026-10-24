@@ -25,6 +25,8 @@ from collections import deque
 
 RX_BUFFER = 127                 # GRBL's serial receive buffer, minus one
 STATUS_EVERY_S = 0.25
+#: Opening the port resets the Arduino; GRBL needs about this long to boot.
+BOOT_S = 2.0
 
 _STATUS = re.compile(r"<([^,|>]+)[,|](.*)>")
 _SETTING = re.compile(r"^\$(\d+)=([-\d.]+)")
@@ -68,6 +70,17 @@ def apply_profile(cfg, profile: dict | None = None):
         cfg.machine.feed_travel = min(cfg.machine.feed_travel, float(min(rate)))
         cfg.machine.feed_draw = min(cfg.machine.feed_draw, float(min(rate)))
     return cfg
+
+
+def log_plot(entry: dict):
+    """Append a finished plot to plot_log.jsonl, next to machine.json.
+
+    Estimated against real plot time, plot after plot, is what the time
+    model is calibrated from; a plot that is not logged is lost for that.
+    """
+    path = os.path.join(os.path.dirname(PROFILE), "plot_log.jsonl")
+    with open(path, "a") as f:
+        f.write(json.dumps(entry) + "\n")
 
 
 def ports() -> list[str]:
@@ -163,10 +176,10 @@ class Grbl:
         self._serial = s
         self.port = port
         self._stop.clear()
-        time.sleep(2.0)
+        time.sleep(BOOT_S)
         s.write(b"\r\n\r\n")
-        time.sleep(0.3)
-        banner = self._drain(1.0)
+        time.sleep(0.15 * BOOT_S)
+        banner = self._drain(0.5 * BOOT_S)
         for ln in banner:
             if ln.startswith("Grbl"):
                 self.version = ln.split("[")[0].strip()
@@ -292,6 +305,10 @@ class Grbl:
             self.job["acked"] += 1
             if line.startswith("error"):
                 self.job["errors"].append(f"line {self.job['acked']}: {line}")
+                # Hold at once: with the buffer kept full, the next few lines
+                # are already in GRBL and would run on after the bad one.
+                if self.job["state"] == "running":
+                    self.pause()
 
     def _status(self, state: str, fields: str):
         self.state = state.split(":")[0]
@@ -390,6 +407,18 @@ class Grbl:
         if job["state"] != "stopped":
             job["state"] = "done"
             job["finished"] = time.time()
+            if job["estimate_s"] > 0:
+                try:
+                    log_plot({"name": job["name"], "lines": job["total"],
+                              "estimate_s": round(job["estimate_s"], 1),
+                              "actual_s": round(job["finished"] - job["started"]
+                                                - job["paused_s"], 1),
+                              "accel": self.settings.get(120),
+                              "junction_deviation": self.settings.get(11),
+                              "errors": len(job["errors"]),
+                              "finished": time.strftime("%Y-%m-%d %H:%M")})
+                except OSError as exc:
+                    self.last_error = f"could not log plot: {exc}"
 
     def _feed(self, lines: list[str], job: dict):
         """Stream lines into GRBL's buffer and wait until they have run."""
@@ -408,11 +437,6 @@ class Grbl:
                 self._inflight.append((len(data), "job", None))
             self._write(data)
             job["sent"] += 1
-            if job["errors"]:
-                # A rejected line means the program and the machine disagree
-                # about something; carrying on draws garbage.  Hold and ask.
-                self.pause()
-                job["state"] = "paused"
         while job["acked"] < target and job["state"] != "stopped" \
                 and self.connected:
             time.sleep(0.02)
@@ -452,6 +476,7 @@ class Grbl:
     def _run_test(self, parts, original):
         job = self.job
         current = None
+        finished = False
         try:
             for block, part, lines in parts:
                 if job["state"] == "stopped" or not self.connected:
@@ -471,8 +496,7 @@ class Grbl:
                                        "name": part["name"], "lifts": part["lifts"],
                                        "estimate_s": part["estimate_s"],
                                        "actual_s": time.time() - t0})
-            job["state"] = "done"
-            job["finished"] = time.time()
+            finished = True
         except Exception as exc:
             job["errors"].append(str(exc))
             job["state"] = "stopped"
@@ -482,6 +506,11 @@ class Grbl:
                     self._set(number, value)
                 except Exception as exc:
                     self.last_error = f"could not restore ${number}: {exc}"
+            # Only now: "done" invites choosing a speed, which must not race
+            # the restore above.
+            if finished:
+                job["state"] = "done"
+                job["finished"] = time.time()
 
     def apply_speed(self, accel: float, junction_deviation: float):
         """Keep new acceleration and corner settings in the firmware."""
@@ -552,5 +581,6 @@ class Grbl:
                           "block": job.get("block"), "results": job.get("results"),
                           "done": job["acked"], "total": job["total"],
                           "fraction": frac, "elapsed_s": elapsed,
+                          "estimate_s": job["estimate_s"],
                           "remaining_s": remaining, "errors": job["errors"][-3:]}
         return out

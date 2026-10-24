@@ -11,3 +11,4 @@ samples/photos/owl.jpg
 
 # per-machine settings read over serial
 machine.json
+plot_log.jsonl
