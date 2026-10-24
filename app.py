@@ -108,14 +108,31 @@ def config_from_form() -> Config:
     return grbl.apply_profile(cfg)
 
 
+#: What each style is for and how long it tends to plot, in the words the
+#: style picker shows.  The first three are the ones worth trying first.
+ENGINE_UI = {
+    "illustration": ("fast", "Pen-and-ink: outlines with shadow hatching. Light and airy."),
+    "waves": ("medium", "One wavy line sweeps the page. Strong tone, graphic look."),
+    "hilbert": ("medium", "One maze-like curve. Most faithful tone, subject on white."),
+    "crosshatch": ("slow", "Layered engraving-style hatching."),
+    "flowlines": ("slow", "Strokes follow fur, feathers and hair."),
+    "adaptive": ("slow", "Cross-hatch on smooth areas, flow lines on texture."),
+    "tsp": ("slow", "Stipple dots joined into one continuous line."),
+    "contours": ("slow", "Tonal contour lines, like a map."),
+    "outline": ("fastest", "Edges only, no shading."),
+    "lineart": ("fastest", "Traces an existing drawing or scan."),
+}
+FEATURED = ("illustration", "waves", "hilbert")
+
+
 @app.route("/")
 def index():
     engines = []
     for name, meta in ENGINES.items():
-        # Descriptions read "Name - blurb"; the card wants those apart.
-        label, _, blurb = meta[1].partition("\u2014")
-        engines.append({"id": name, "label": label.strip(),
-                        "blurb": blurb.strip(), "lifts": meta[2]})
+        label = meta[1].partition("\u2014")[0].strip()
+        speed, best = ENGINE_UI.get(name, ("", meta[1]))
+        engines.append({"id": name, "label": label, "speed": speed, "best": best,
+                        "featured": name in FEATURED})
     return render_template_string(HTML, engines=engines,
                                   papers=sorted(PAPER_SIZES))
 
@@ -641,7 +658,7 @@ HTML = r"""
   /* ── stage ─────────────────────────────────────────────────── */
   .stage{
     background:var(--panel);border:1px solid var(--rule);border-radius:var(--r);
-    min-height:calc(100vh - 92px);display:flex;flex-direction:column;
+    height:calc(100vh - 92px);min-height:560px;display:flex;flex-direction:column;
     overflow:hidden;position:relative;
   }
   .bar{height:1px;background:var(--rule);overflow:hidden;flex:none}
@@ -657,16 +674,15 @@ HTML = r"""
 
   .sheetwrap{
     flex:1;display:flex;flex-direction:column;align-items:center;
-    justify-content:center;gap:13px;padding:32px 28px;
-    background:var(--surface);min-height:340px;
+    justify-content:center;gap:10px;padding:20px 24px;
+    background:var(--surface);min-height:0;overflow:hidden;
   }
   .stage.busy .sheetwrap{opacity:.42;transition:opacity .2s}
   .sheet{
     background:#fff;box-shadow:var(--sheet-shadow);border-radius:2px;
     max-width:100%;line-height:0;
   }
-  .sheet img{display:block;max-width:100%;max-height:calc(100vh - 330px);
-             border-radius:2px}
+  .sheet img{display:block;max-width:100%;border-radius:2px}
   .caption{
     font-family:var(--mono);font-size:10px;letter-spacing:.08em;
     text-transform:uppercase;color:var(--ink-3);
@@ -681,29 +697,35 @@ HTML = r"""
            flex:none}
   .readout.on{display:block}
   .headline{
-    display:flex;align-items:baseline;gap:11px;flex-wrap:wrap;
-    padding:15px 20px 12px;
+    display:flex;align-items:center;gap:11px;flex-wrap:wrap;
+    padding:9px 20px;
   }
-  .headline .big{font-size:27px;font-weight:600;letter-spacing:-.02em;
+  .headline .big{font-size:21px;font-weight:600;letter-spacing:-.02em;
                  font-family:var(--mono)}
   .headline .cap{font-size:11px;color:var(--ink-3);letter-spacing:.04em;
                  text-transform:uppercase}
   .headline .rule{flex:1;height:1px;background:var(--rule);min-width:20px}
-  .metrics{
-    display:grid;grid-template-columns:repeat(auto-fit,minmax(112px,1fr));
-    border-top:1px solid var(--rule);
-  }
-  .metrics > div{
-    padding:11px 20px;border-right:1px solid var(--rule);
-  }
-  .metrics > div:last-child{border-right:none}
+  .metrics{display:flex;gap:20px;flex-wrap:wrap}
+  .metrics > div{cursor:default}
   .metrics dt{
-    font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;
-    color:var(--ink-3);margin-bottom:3px;
+    font-size:9px;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--ink-3);
   }
-  .metrics dd{font-family:var(--mono);font-size:14px;font-weight:500}
+  .metrics dd{font-family:var(--mono);font-size:13px;font-weight:500}
+  .metrics .delta{display:none}
   .metrics dd .unit{font-size:10px;color:var(--ink-3);margin-left:2px}
   .delta{font-size:10px;color:var(--ink-3);font-family:var(--mono);margin-top:2px}
+
+  /* ── sidebar guidance ──────────────────────────────────────── */
+  .subhead{font-size:10px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;
+           color:var(--ink-3);margin:16px 0 10px;padding-top:13px;border-top:1px dashed var(--rule)}
+  .subhead span{color:var(--ink)}
+  details.more{margin-top:9px}
+  details.more > summary{font-size:10.5px;letter-spacing:.06em}
+  .finehead{padding:15px 17px 4px}
+  .finehead h2{font-size:10px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;
+               color:var(--ink-3)}
+  .finehead p{font-size:10.5px;color:var(--ink-3);margin-top:4px;line-height:1.45}
 
   /* ── plotter ───────────────────────────────────────────────── */
   .machine{border-top:1px solid var(--rule);background:var(--panel);flex:none;
@@ -749,7 +771,7 @@ HTML = r"""
   @media (max-width:940px){
     .shell{grid-template-columns:1fr}
     .panel{position:static;max-height:none}
-    .stage{min-height:0}
+    .stage{min-height:0;height:auto}
   }
 </style>
 </head>
@@ -800,29 +822,42 @@ HTML = r"""
       </section>
 
       <section>
-        <div class="sec-head"><h2>Engine</h2><span class="aside">pen lifts</span></div>
+        <div class="sec-head"><h2>Style</h2><span class="aside">plot time</span></div>
         <div class="engines">
-          {% for e in engines %}
+          {% for e in engines if e.featured %}
           <label class="eng">
             <input type="radio" name="engine" value="{{ e.id }}"
-                   {% if loop.first %}checked{% endif %}>
+                   {% if e.id == 'illustration' %}checked{% endif %}>
             <span class="box">
               <span class="line1">
                 <span class="nm">{{ e.label }}</span>
-                <span class="lift">{{ e.lifts }}</span>
+                <span class="lift">{{ e.speed }}</span>
               </span>
-              <span class="bl">{{ e.blurb }}</span>
+              <span class="bl">{{ e.best }}</span>
             </span>
           </label>
           {% endfor %}
         </div>
+        <details class="more" id="moreEngines">
+          <summary>More styles</summary>
+          <div class="engines" style="margin-top:9px">
+          {% for e in engines if not e.featured %}
+          <label class="eng">
+            <input type="radio" name="engine" value="{{ e.id }}"
+                   {% if e.id == 'illustration' %}checked{% endif %}>
+            <span class="box">
+              <span class="line1">
+                <span class="nm">{{ e.label }}</span>
+                <span class="lift">{{ e.speed }}</span>
+              </span>
+              <span class="bl">{{ e.best }}</span>
+            </span>
+          </label>
+          {% endfor %}
+          </div>
+        </details>
 
-        <div class="ctl">
-          <label><span>Time limit
-            <span class="tip" title="Longest the plot may take. The strokes that add least to the picture are dropped first - short faint lines and hatching in the lightest shadows - until the estimate fits. Off draws everything.">i</span></span>
-            <span class="v" id="time_limitV">off</span></label>
-          <input type="range" id="time_limit" min="0" max="60" step="1" value="0">
-        </div>
+        <div class="subhead">Settings for <span id="engName">Illustration</span></div>
         <div class="ctl" data-for="crosshatch,flowlines,adaptive,waves,hilbert,tsp,contours">
           <label><span>Subject focus
             <span class="tip" title="Uses depth to lighten the background so the drawing - and the plot time - goes to the subject. Hilbert fades the background out completely. Turn down for landscapes or to keep a full-frame texture.">i</span></span>
@@ -935,57 +970,13 @@ HTML = r"""
       </section>
 
       <section>
-        <div class="sec-head"><h2>Form &amp; line</h2></div>
-        <div class="ctl pair">
-          <div>
-            <label style="display:block;font-size:11.5px;color:var(--ink-2);margin-bottom:6px">Line source
-              <span class="tip" title="Learned: a network trained on artist drawings (Informative Drawings) picks the lines an illustrator would keep. Coherent: flow-guided edge detection. Canny: the old detector.">i</span></label>
-            <select id="line_method">
-              <option value="learned" selected>Learned</option>
-              <option value="coherent">Coherent</option>
-              <option value="canny">Canny</option>
-            </select>
-          </div>
-          <div>
-            <label style="display:block;font-size:11.5px;color:var(--ink-2);margin-bottom:6px">Line style</label>
-            <select id="line_style">
-              <option value="sketch" selected>Sketch</option>
-              <option value="contour">Contour</option>
-            </select>
-          </div>
-        </div>
-        <label class="check">
-          <input type="checkbox" id="use_depth" checked> Depth-driven form
-          <span class="tip" title="Estimates depth (Depth Anything V2, or MiDaS without transformers) on the GPU and hatches along the surface's principal curvature, so strokes wrap a form instead of ruling straight across it. Only applied where the image itself has no structure to follow, so texture is left alone. Needs PyTorch; skipped if absent.">i</span>
-        </label>
-        <div class="ctl" data-when="use_depth">
-          <label>Form strength <span class="v" id="form_weightV">0.80</span></label>
-          <input type="range" id="form_weight" min="0.1" max="1" step="0.05" value="0.8">
-        </div>
-      </section>
-
-      <section>
-        <div class="sec-head"><h2>Ink</h2></div>
+        <div class="sec-head"><h2>Paper, pen &amp; time</h2></div>
         <div class="ctl">
-          <label>Amount <span class="v" id="inkV">1.00×</span></label>
-          <input type="range" id="ink" min="0.3" max="2" step="0.05" value="1">
+          <label><span>Time limit
+            <span class="tip" title="Longest the plot may take. The strokes that add least to the picture are dropped first - short faint lines and hatching in the lightest shadows - until the estimate fits. Off draws everything.">i</span></span>
+            <span class="v" id="time_limitV">off</span></label>
+          <input type="range" id="time_limit" min="0" max="60" step="1" value="0">
         </div>
-        <div class="ctl">
-          <label>Angle in flat areas <span class="v" id="angleV">45°</span></label>
-          <input type="range" id="angle" min="0" max="180" step="5" value="45">
-        </div>
-        <label class="check">
-          <input type="checkbox" id="outline" checked> Draw landmark lines
-          <span class="tip" title="Traces the thin dark lines a person would draw — a lid line, a lip seam, a nostril — on top of the shading. On a portrait this is what makes an eye read as an eye rather than a dark patch.">i</span>
-        </label>
-        <div class="ctl" data-when="outline">
-          <label>Landmark strength <span class="v" id="outline_strengthV">0.60</span></label>
-          <input type="range" id="outline_strength" min="0.1" max="1" step="0.05" value="0.6">
-        </div>
-      </section>
-
-      <section>
-        <div class="sec-head"><h2>Pen &amp; page</h2></div>
         <div class="ctl">
           <label>
             <span>Pen width
@@ -1017,8 +1008,73 @@ HTML = r"""
         </label>
       </section>
 
+      <div class="finehead">
+        <h2>Fine-tuning</h2>
+        <p>The defaults are tuned on test photos. Open these only to change a specific look.</p>
+      </div>
+
       <section>
-        <div class="sec-head"><h2>Tone</h2></div>
+        <details>
+          <summary>Form &amp; line</summary>
+          <div class="body">
+        <div class="ctl pair">
+          <div>
+            <label style="display:block;font-size:11.5px;color:var(--ink-2);margin-bottom:6px">Line source
+              <span class="tip" title="Learned: a network trained on artist drawings (Informative Drawings) picks the lines an illustrator would keep. Coherent: flow-guided edge detection. Canny: the old detector.">i</span></label>
+            <select id="line_method">
+              <option value="learned" selected>Learned</option>
+              <option value="coherent">Coherent</option>
+              <option value="canny">Canny</option>
+            </select>
+          </div>
+          <div>
+            <label style="display:block;font-size:11.5px;color:var(--ink-2);margin-bottom:6px">Line style</label>
+            <select id="line_style">
+              <option value="sketch" selected>Sketch</option>
+              <option value="contour">Contour</option>
+            </select>
+          </div>
+        </div>
+        <label class="check">
+          <input type="checkbox" id="use_depth" checked> Depth-driven form
+          <span class="tip" title="Estimates depth (Depth Anything V2, or MiDaS without transformers) on the GPU and hatches along the surface's principal curvature, so strokes wrap a form instead of ruling straight across it. Only applied where the image itself has no structure to follow, so texture is left alone. Needs PyTorch; skipped if absent.">i</span>
+        </label>
+        <div class="ctl" data-when="use_depth">
+          <label>Form strength <span class="v" id="form_weightV">0.80</span></label>
+          <input type="range" id="form_weight" min="0.1" max="1" step="0.05" value="0.8">
+        </div>
+          </div>
+        </details>
+      </section>
+
+      <section>
+        <details>
+          <summary>Ink</summary>
+          <div class="body">
+        <div class="ctl">
+          <label>Amount <span class="v" id="inkV">1.00×</span></label>
+          <input type="range" id="ink" min="0.3" max="2" step="0.05" value="1">
+        </div>
+        <div class="ctl">
+          <label>Angle in flat areas <span class="v" id="angleV">45°</span></label>
+          <input type="range" id="angle" min="0" max="180" step="5" value="45">
+        </div>
+        <label class="check">
+          <input type="checkbox" id="outline" checked> Draw landmark lines
+          <span class="tip" title="Traces the thin dark lines a person would draw — a lid line, a lip seam, a nostril — on top of the shading. On a portrait this is what makes an eye read as an eye rather than a dark patch.">i</span>
+        </label>
+        <div class="ctl" data-when="outline">
+          <label>Landmark strength <span class="v" id="outline_strengthV">0.60</span></label>
+          <input type="range" id="outline_strength" min="0.1" max="1" step="0.05" value="0.6">
+        </div>
+          </div>
+        </details>
+      </section>
+
+      <section>
+        <details>
+          <summary>Tone</summary>
+          <div class="body">
         <div class="ctl">
           <label>Local contrast <span class="v" id="contrastV">2.0</span></label>
           <input type="range" id="contrast" min="0" max="6" step="0.1" value="2">
@@ -1050,6 +1106,8 @@ HTML = r"""
           <label class="check"><input type="checkbox" id="flip_y"> Mirror left / right</label>
           <label class="check"><input type="checkbox" id="remove_bg"> Remove background</label>
         </div>
+          </div>
+        </details>
       </section>
 
       <section>
@@ -1152,10 +1210,9 @@ HTML = r"""
     <div class="readout" id="readout">
       <div class="headline">
         <span class="big" id="bigTime">—</span>
-        <span class="cap">estimated plot time</span>
-        <span class="rule"></span>
+        <span class="cap">plot time</span>
         <span class="cap" id="engCap"></span>
-      </div>
+        <span class="rule"></span>
       <dl class="metrics">
         <div><dt>Pen lifts</dt><dd id="mLifts">—</dd><div class="delta" id="dLifts"></div></div>
         <div><dt>Drawn</dt><dd id="mDraw">—</dd><div class="delta" id="dDraw"></div></div>
@@ -1163,6 +1220,7 @@ HTML = r"""
         <div><dt title="How closely the finished plot matches the photo's tone when seen from arm's length (SSIM, 1 = identical). Compare it between settings of one engine: illustration leaves light tones to the paper on purpose, so it scores lower than the dense engines even where it looks better.">Likeness</dt><dd id="mTone">—</dd><div class="delta" id="dTone">viewed at arm's length</div></div>
         <div><dt>G-code</dt><dd id="mFile">—</dd><div class="delta" id="dPoints"></div></div>
       </dl>
+      </div>
     </div>
 
     <div class="machine" id="machine">
@@ -1184,7 +1242,7 @@ HTML = r"""
           <span></span><button class="mbtn" data-jog="0,1" title="Toward the bottom of the drawing">↓</button><span></span>
         </div>
         <div class="mgroup">
-          <div class="seg" id="mstep"><button data-step="1">1</button><button data-step="10" class="on">10</button><button data-step="50">50 mm</button></div>
+          <div class="mrow" style="gap:6px"><div class="seg" id="mstep" title="How far each arrow press moves the pen"><button data-step="1">1</button><button data-step="10" class="on">10</button><button data-step="50">50</button></div><span class="minfo">mm per step</span></div>
           <div class="mrow" style="gap:6px">
             <button class="mbtn" id="mpenDown">Pen down</button>
             <button class="mbtn" id="mpenUp">Pen up</button>
@@ -1254,6 +1312,9 @@ const engineValue = () => engineInputs.find(r => r.checked).value;
 /* Only show the knobs the chosen engine actually reads. */
 function syncEngine() {
   const name = engineValue();
+  const card = document.querySelector(`input[name=engine][value="${name}"]`);
+  $('engName').textContent = card.closest('.eng').querySelector('.nm').textContent;
+  if (card.closest('#moreEngines')) $('moreEngines').open = true;
   document.querySelectorAll('[data-for]').forEach(el => {
     el.style.display = el.dataset.for.split(',').includes(name) ? '' : 'none';
   });
@@ -1390,8 +1451,28 @@ function show(data, label) {
   $('mFile').innerHTML = s.kb + '<span class="unit">kB</span>';
   $('dPoints').textContent =
     s.points.toLocaleString('en-US').replace(/,/g, ' ') + ' points';
+  // The detail under each figure lives in its tooltip, to keep the line slim.
+  document.querySelectorAll('.metrics > div').forEach(d => {
+    const delta = d.querySelector('.delta');
+    if (delta) d.title = delta.textContent;
+  });
   $('readout').classList.add('on');
+  const img = wrap.querySelector('.sheet img');
+  img.addEventListener('load', fitPreview);
+  fitPreview();
 }
+
+/* The preview takes whatever height the readout and plotter panel leave, so
+   the drawing and the controls are on screen together without scrolling. */
+function fitPreview() {
+  const wrap = $('sheetwrap'), img = wrap.querySelector('.sheet img');
+  if (!img) return;
+  if (window.innerWidth <= 940) { img.style.maxHeight = ''; return; }
+  const cap = wrap.querySelector('.caption');
+  const room = wrap.clientHeight - 40 - (cap ? cap.offsetHeight + 10 : 0);
+  img.style.maxHeight = Math.max(160, room) + 'px';
+}
+window.addEventListener('resize', fitPreview);
 
 $('dl').addEventListener('click', () => { window.location.href = '/download'; });
 
