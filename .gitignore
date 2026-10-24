@@ -4,7 +4,7 @@ __pycache__/
 venv/
 .DS_Store
 *.gcode
-!Test G Code/**/*.gcode
 *_preview.png
-Drawings/photos/owl.jpg
 eval_out/
+# test photo of unknown licence, kept locally only
+samples/photos/owl.jpg

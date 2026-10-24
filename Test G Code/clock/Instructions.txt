@@ -1,3 +1,0 @@
-Picture size 130 * 130mm
-Upper left corner of picture origin
-Run in candle 0.9

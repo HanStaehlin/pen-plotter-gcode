@@ -1,15 +1,16 @@
 numpy>=1.24
 opencv-python>=4.8
 scipy>=1.10
+scikit-image>=0.21   # SLIC regions for the adaptive engine
 Flask>=3.0
 
-# Optional: the "Remove background" checkbox in the web UI.
-# Downloads a ~170 MB model on first use.
-# rembg>=2.0
-
-# Optional: depth-driven hatching ("Form & line" > Depth-driven form) and
-# the app runs fine without it — that control is simply skipped.
-# On Apple Silicon, torch uses the Metal (MPS) backend automatically; no
-# separate install step needed beyond a normal `pip install torch`.
+# Optional. Depth-driven form (MiDaS) and the learned line model
+# (Informative Drawings); both run on Apple Silicon via Metal. Weights
+# download on first use. Without these, engines fall back to classical
+# methods.
 # torch>=2.1
-# timm>=0.9        # MiDaS's backbone, pulled in via torch.hub
+# timm>=0.9
+# huggingface_hub>=0.20
+
+# Optional: "Remove background" in the web UI (~170 MB model on first use).
+# rembg>=2.0
