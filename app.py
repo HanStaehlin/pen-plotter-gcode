@@ -98,6 +98,7 @@ def config_from_form() -> Config:
     cfg.paths.merge_tolerance_mm = _f("merge", 1.0)
     cfg.paths.bridge_max_mm = _f("bridge", 3.0)
     cfg.paths.bridge_min_ink = _f("bridge_min_ink", 0.30)
+    cfg.paths.time_limit_min = _f("time_limit", 0.0)
     return cfg
 
 
@@ -182,6 +183,7 @@ def _respond(result, filename, header, **extra):
             "asked_resolution": _i("resolution", 1100),
             "pen_px": round(s["pen_px"], 2),
             "elapsed": f"{s['elapsed_s']:.1f}s",
+            "budget_cut": s.get("budget_cut", 0),
         },
         **extra,
     )
@@ -578,6 +580,12 @@ HTML = r"""
           {% endfor %}
         </div>
 
+        <div class="ctl">
+          <label><span>Time limit
+            <span class="tip" title="Longest the plot may take. The strokes that add least to the picture are dropped first - short faint lines and hatching in the lightest shadows - until the estimate fits. Off draws everything.">i</span></span>
+            <span class="v" id="time_limitV">off</span></label>
+          <input type="range" id="time_limit" min="0" max="60" step="1" value="0">
+        </div>
         <div class="ctl" data-for="flowlines">
           <label>Follow image structure <span class="v" id="coherenceV">100%</span></label>
           <input type="range" id="coherence" min="0" max="1" step="0.05" value="1">
@@ -933,6 +941,7 @@ const FMT = {
   region_threshold:v=>(+v).toFixed(2), region_segments:v=>v,
   illustration_shadow:v=>(+v).toFixed(2), illustration_focus:v=>(+v).toFixed(2),
   illustration_tone:v=>(+v).toFixed(2),
+  time_limit:v=>(+v===0?'off':v+' min'),
   spacing:v=>(+v===0?'auto':(+v).toFixed(1)+' mm'),
   pen:v=>(+v).toFixed(2)+' mm', contrast:v=>(+v).toFixed(1),
   detail:v=>(+v).toFixed(2), exposure:v=>(+v).toFixed(2), gamma:v=>(+v).toFixed(2),
@@ -1018,7 +1027,7 @@ const FIELDS = ['ink','angle','coherence','levels','points','depth','coarsest',
   'illustration_shading','illustration_shadow','illustration_focus','illustration_tone',
   'pen','paper','margin','contrast','detail','exposure','gamma','chroma',
   'ink_response','resolution','merge','bridge','bridge_min_ink','max_coverage',
-  'feed','travel_feed'];
+  'feed','travel_feed','time_limit'];
 const CHECKS = ['outline','portrait','rotate_out','invert','flip_x','flip_y',
   'remove_bg','show_travel','use_depth'];
 
@@ -1082,7 +1091,8 @@ function show(data, label) {
     (s.rotated ? ' · turned to landscape' : '');
   $('mLifts').textContent = s.lifts.toLocaleString('en-US').replace(/,/g, ' ');
   $('dLifts').textContent = 'from ' +
-    s.lifts_before.toLocaleString('en-US').replace(/,/g, ' ') + ' strokes';
+    s.lifts_before.toLocaleString('en-US').replace(/,/g, ' ') + ' strokes' +
+    (s.budget_cut ? ' · ' + s.budget_cut + ' left out to fit' : '');
   $('mDraw').innerHTML = s.draw_m + '<span class="unit">m</span>';
   $('dDraw').textContent = 'pen down ' + s.draw_time;
   $('mTravel').innerHTML = s.travel_m + '<span class="unit">m</span>';

@@ -7,6 +7,7 @@ from dataclasses import dataclass, field as dc_field, replace
 
 import numpy as np
 
+from . import budget
 from . import depth as depth_mod
 from . import engines, gcode, paths as P, tone, transform
 from .config import Config
@@ -106,21 +107,37 @@ def convert(img_rgb: np.ndarray, cfg: Config, progress=None) -> Result:
     engine = engines.get(cfg.render.engine)
     produced = engine(value, coverage, canvas, cfg.pen, cfg.render,
                       features=features, form=form, image_rgb=view_rgb)
-    px_paths, ink = produced if isinstance(produced, tuple) else (produced, None)
+    if not isinstance(produced, tuple):
+        produced = (produced, None)
+    px_paths, ink = produced[0], produced[1]
+    # Engines that rank their own strokes return the scores as well; only
+    # those are pruned, since for the rest a low score just means "light
+    # tone", which is still wanted.
+    ranked = len(produced) > 2
+    scores = list(produced[2]) if ranked else budget.default_scores(px_paths, coverage)
 
     if cfg.render.outline and cfg.render.engine not in ("outline", "lineart", "illustration"):
         note("tracing outlines")
-        px_paths = list(px_paths) + list(engines.outline.generate(
+        overlay, strengths = engines.outline.generate(
             value, coverage, canvas, cfg.pen, cfg.render,
             strength=cfg.render.outline_strength,
             features=features, feature_min=cfg.render.outline_feature_min,
-            form=form, image_rgb=view_rgb))
+            form=form, image_rgb=view_rgb, with_strength=True)
+        px_paths = list(px_paths) + list(overlay)
+        scores += [budget.line_score(st, P.path_length(p) / canvas.px_per_mm)
+                   for p, st in zip(overlay, strengths)]
 
+    keep = [i for i, p in enumerate(px_paths) if len(p) >= 2]
     mm_paths = canvas.paths_to_mm(px_paths)
+    scores = [scores[i] for i in keep]
     raw_count = len(mm_paths)
     raw_travel = P.travel_length(mm_paths)   # unordered, unwelded
-    mm_paths = _optimise(mm_paths, cfg, note,
-                         _ink_sampler(coverage, canvas))
+    sampler = _ink_sampler(coverage, canvas)
+    mm_paths, cut = budget.select(
+        mm_paths, scores, cfg,
+        finish=lambda ps: _optimise(ps, cfg, note, sampler),
+        minutes=cfg.paths.time_limit_min,
+        prune_below=cfg.paths.prune_below if ranked else 0.0, note=note)
 
     note("estimating")
     stats = gcode.estimate_time(mm_paths, cfg)
@@ -135,6 +152,8 @@ def convert(img_rgb: np.ndarray, cfg: Config, progress=None) -> Result:
         "resolution": resolution,
         "pen_px": cfg.pen.width_mm * canvas.px_per_mm,
         "used_depth": depth_map is not None,
+        "pruned": cut["pruned"],
+        "budget_cut": cut["budget_cut"],
     })
 
     rotated = (cfg.page.rotate_output or "auto").lower() != "off" and (

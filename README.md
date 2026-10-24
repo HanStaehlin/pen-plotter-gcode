@@ -21,6 +21,7 @@ Goals:
 pip install -r requirements.txt          # torch is optional, see the file
 ./run.sh                                  # web UI on http://localhost:8080
 python3 image_to_gcode.py photo.jpg -o photo.gcode
+python3 image_to_gcode.py photo.jpg --minutes 12   # fit a 12-minute plot
 python3 image_to_gcode.py --list-engines
 ```
 

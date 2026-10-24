@@ -17,6 +17,7 @@ from __future__ import annotations
 import cv2
 import numpy as np
 
+from .. import budget
 from ..geometry import InkBuffer
 
 
@@ -27,9 +28,9 @@ def generate(value, coverage, canvas, pen, cfg, features=None, form=None,
     px_per_mm = canvas.px_per_mm
     pen_px = max(0.4, pen.width_mm * px_per_mm)
 
-    lines = outline.generate(value, coverage, canvas, pen, cfg,
-                             strength=cfg.outline_strength, form=form,
-                             image_rgb=image_rgb)
+    lines, strengths = outline.generate(value, coverage, canvas, pen, cfg,
+                                        strength=cfg.outline_strength, form=form,
+                                        image_rgb=image_rgb, with_strength=True)
 
     # Rasterise the line layer and keep shading off it, with a margin of a
     # pen width so hatching doesn't pile up alongside every contour.
@@ -95,7 +96,15 @@ def generate(value, coverage, canvas, pen, cfg, features=None, form=None,
     ink = InkBuffer(coverage, pen_px, features=features)
     for p in paths:
         ink.deposit(p)
-    return paths, ink
+    scores = ([budget.line_score(st, _length(p) / px_per_mm)
+               for p, st in zip(lines, strengths)]
+              + [budget.shade_score(outline._mean_along(shade_cov, p))
+                 for p in shading])
+    return paths, ink, scores
+
+
+def _length(p) -> float:
+    return float(np.hypot(*np.diff(p, axis=0).T).sum())
 
 
 def _light(cfg) -> np.ndarray:

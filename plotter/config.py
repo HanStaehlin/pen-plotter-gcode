@@ -122,6 +122,12 @@ class PathConfig:
     min_path_mm: float = 0.4       # drop strokes shorter than this
     sort: bool = True              # nearest-neighbour travel ordering
     refine_order: bool = True      # 2-opt pass over the travel ordering
+    #: Plot-time limit in minutes, 0 = none.  The strokes that add most to
+    #: the picture are kept until the estimate reaches it (see budget.py).
+    time_limit_min: float = 0.0
+    #: Strokes an engine scores below this are dropped even without a limit:
+    #: faint fragments that cost a lift each and read as noise.
+    prune_below: float = 0.2
 
 
 @dataclass

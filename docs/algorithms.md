@@ -68,6 +68,31 @@ move. Feed rate alone is useless (a machine at 400 mm/s² never reaches
 just as wrong — it would price the Hilbert curve, which is nothing but corners,
 at triple its real cost.
 
+## Time budget and pruning
+
+Plot time is treated as a budget rather than only reported. Every stroke gets
+a score for how much it adds to the picture (`plotter/budget.py`):
+
+- a line scores its drawn darkness (from the line network) times a factor
+  that rises with length, so a 2 mm fragment, which costs a full lift and
+  reads as a speck, ranks low;
+- a hatch stroke scores the darkness of the shadow it shades, weighted 1.5×
+  so the deepest shadows compete with mid-strength lines.
+
+Lines and shading share one scale because the line layer is about nine
+tenths of the plot time on the test photos: "lines first, hatching after"
+would leave nothing to choose between.
+
+Strokes scoring below `--prune` (default 0.2) are always dropped — the delete
+step of Turk & Banks 1996. On the six test photos this saves 4–21% with no
+visible loss; mostly it removes faint hatching on backgrounds and skies.
+
+With `--minutes N` (the app's *Time limit*) the best-scoring strokes are kept
+until the estimate fits. Welding and bridging change the real cost a lot, so
+the cut is checked on the finished, ordered paths: each stroke is priced on
+its own, the best prefix that fits is finished and timed, and the ratio
+corrects the next guess. It lands within 1% under the limit in a few passes.
+
 ## Faces
 
 Tone alone does not draw a face. A lip seam is 0.8 mm tall and carries almost

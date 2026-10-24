@@ -129,8 +129,12 @@ def trace(skel: np.ndarray, min_px: int = 6) -> list[np.ndarray]:
 
 def generate(value, coverage, canvas, pen, cfg, strength: float | None = None,
              features=None, feature_min: float = 0.0, form=None,
-             field=None, image_rgb=None):
-    """Outline strokes for the current image, in pixel coordinates."""
+             field=None, image_rgb=None, with_strength: bool = False):
+    """Outline strokes for the current image, in pixel coordinates.
+
+    With ``with_strength`` also returns how dark each line is meant to be,
+    0..1, which the time budget uses to decide which lines matter most.
+    """
     px_per_mm = canvas.px_per_mm
     # Called two ways: as an engine in its own right, where the registry
     # passes no strength, and as an overlay, where the pipeline does.  Fall
@@ -155,6 +159,7 @@ def generate(value, coverage, canvas, pen, cfg, strength: float | None = None,
         dark = learned_lines.draw(rgb, (value.shape[1], value.shape[0]),
                                   style=getattr(cfg, "line_style", "contour"))
         mask = dark > (0.62 - 0.42 * s)
+        weight = dark
         edges = (mask.astype(np.uint8) * 255)
         k = 1.0
         feature_min = 0.0              # the network already chose the landmarks
@@ -192,6 +197,10 @@ def generate(value, coverage, canvas, pen, cfg, strength: float | None = None,
         edges = cv2.Canny(v8, hi * 0.4, hi, L2gradient=True)
         edges = cv2.dilate(edges, np.ones((3, 3), np.uint8))
 
+    if method != "learned":
+        # No drawn darkness to go on; how dark the photo is under the line
+        # is the nearest stand-in.
+        weight = 1.0 - value
     skel = skeleton(edges)
     paths = trace(skel, min_px=4)
 
@@ -219,7 +228,16 @@ def generate(value, coverage, canvas, pen, cfg, strength: float | None = None,
             if float(np.percentile(features[iy, ix], 70)) >= feature_min:
                 kept.append(pth)
         out = kept
+    if with_strength:
+        return out, [_mean_along(weight, p) for p in out]
     return out
+
+
+def _mean_along(img, pth) -> float:
+    h, w = img.shape
+    ix = np.clip(pth[:, 0].astype(np.int32), 0, w - 1)
+    iy = np.clip(pth[:, 1].astype(np.int32), 0, h - 1)
+    return float(img[iy, ix].mean())
 
 
 def generate_lineart(value, coverage, canvas, pen, cfg, features=None,

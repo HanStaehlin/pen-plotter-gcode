@@ -131,6 +131,12 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--flip-y", action="store_true", help="mirror left to right")
 
     g = p.add_argument_group("paths")
+    g.add_argument("--minutes", type=float, default=0.0, metavar="MIN",
+                   help="plot-time limit: drop the strokes that add least "
+                        "until the estimate fits (0 = no limit)")
+    g.add_argument("--prune", type=float, default=0.2, metavar="F",
+                   help="drop strokes the engine scores below this "
+                        "(faint fragments); 0 keeps everything")
     g.add_argument("--merge", type=float, default=1.0, metavar="MM",
                    help="weld stroke ends closer than this into one stroke")
     g.add_argument("--bridge", type=float, default=3.0, metavar="MM",
@@ -213,6 +219,8 @@ def config_from_args(args) -> Config:
     cfg.paths.merge_tolerance_mm = args.merge
     cfg.paths.bridge_max_mm = args.bridge
     cfg.paths.bridge_min_ink = args.bridge_min_ink
+    cfg.paths.time_limit_min = args.minutes
+    cfg.paths.prune_below = args.prune
     cfg.paths.simplify_mm = args.simplify
     cfg.paths.sort = not args.no_sort
     return cfg
@@ -277,6 +285,10 @@ def main(argv=None) -> int:
         print(f"  travel     {s['travel_dist_m']:.1f} m "
               f"(from {s['travel_unoptimised_m']:.1f} m unordered)")
         print(f"  plot time  {s['label']}  ({s['breakdown']})")
+        if s.get("pruned") or s.get("budget_cut"):
+            print(f"  left out   {s['pruned']} faint strokes"
+                  + (f", {s['budget_cut']} more to fit {args.minutes:g} min"
+                     if s["budget_cut"] else ""))
         if s.get("tone_error") is not None:
             print(f"  tone error {s['tone_error']:.3f} coverage RMS")
         print(f"  wrote      {out}  ({out.stat().st_size / 1024:.0f} kB, "
