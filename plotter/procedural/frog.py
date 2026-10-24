@@ -1,494 +1,550 @@
-"""Procedural frog, in the manner of LingDong's fishdraw.
+"""Procedural frogs seen from above, in the manner of LingDong's fishdraw.
 
-Every part is a closed polygon built from a handful of random parameters.
-Parts are listed front to back; each one is clipped by everything already
-drawn in front of it, which is what lets a leg sit in front of the body
-without any 3D model. Shading is fishdraw's: hatch the part of each shape
-not covered by a copy of itself shifted toward the light, so every form gets
-a crescent of shadow on its far side.
+fishdraw's richness comes from structure, not from any one clever shape:
+every part of the animal has several anatomical variants, each chosen
+independently, so the combinations multiply.  The same is done here, with
+one addition for faithfulness: a frog first draws a real *family*, and the
+family sets the distribution every other choice is drawn from.  Mixing
+freely produces animals that never existed - a toad's body with a tree
+frog's toe discs and a dart frog's colouring - while sampling within a
+family keeps each result plausible and still gives endless variety.
 
-Coordinates are millimetres, x right, y down, frog facing left.
+Coordinates are millimetres, x right, y down, snout pointing up the page.
+Only the left half is designed; the right is its mirror with independent
+jitter, so the animal is symmetric the way a real one is and not the way a
+stamp is.
 """
 
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
 
 import numpy as np
 from shapely import affinity
-from shapely.geometry import LineString, MultiLineString, Point, Polygon
+from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import unary_union
 
+from .geom import blob, catmull, crescent, hatch, limb, lines_of, poisson
 
-# ── small geometry helpers ───────────────────────────────────────────────
+LIGHT = (-1.0, -1.25)
 
-def catmull(points, closed=True, n=14):
-    """Smooth curve through control points (centripetal-ish Catmull-Rom)."""
-    p = np.asarray(points, float)
-    if closed:
-        p = np.vstack([p[-1], p, p[0], p[1]])
+FAMILIES = ("truefrog", "toad", "treefrog", "dartfrog", "hornedfrog", "clawedfrog")
+WEIGHTS = (0.22, 0.2, 0.2, 0.15, 0.12, 0.11)
+
+
+# ── parameters ───────────────────────────────────────────────────────────
+
+def params(rng, family=None):
+    """Every choice for one frog, sampled within ``family``'s ranges."""
+    if family is None:
+        family = FAMILIES[int(rng.choice(len(FAMILIES), p=WEIGHTS))]
+    u = lambda a, b: float(rng.uniform(a, b))
+    pick = lambda opts, p=None: opts[int(rng.choice(len(opts), p=p))]
+    coin = lambda p: bool(rng.random() < p)
+    fills = ["hatch", "cross", "dots"]
+
+    if family == "truefrog":           # Ranidae
+        P = dict(
+            shape=dict(snout=u(.05, .08), head=u(.2, .24), neck=u(.18, .21),
+                       shoulder=u(.21, .25), waist=u(.16, .2), hip=u(.19, .23), point=u(.55, .9)),
+            eye=dict(r=u(.075, .09), y=u(.2, .25), out=u(.9, 1.05), pupil="h", horn=False),
+            limbs=dict(hind=u(1.0, 1.2), front=u(.9, 1.05), thick=u(.9, 1.05),
+                       pose=pick(["splay", "rest"], [.6, .4])),
+            digits=dict(length=u(1.0, 1.2), tip="point", disc=0.0,
+                        web_hind=u(.65, .9), web_front=0.0, claws=False),
+            skin=dict(warts=u(0, .35), wart_size=(.5, 1.0), granules=0.0, ridges=2,
+                      crests=False, parotoid=False, stitches=False),
+            pattern=dict(spots=int(rng.integers(0, 12)), spot_size=(.025, .05), blotches=0,
+                         mid_stripe=coin(.25), lat_bands=False, stripes=0,
+                         leg_bands=coin(.75), reticulate=False, chevron=coin(.25),
+                         bar=coin(.4), pale_border=False, fill=pick(fills, [.6, .2, .2])))
+    elif family == "toad":             # Bufonidae
+        P = dict(
+            shape=dict(snout=u(.06, .09), head=u(.22, .25), neck=u(.23, .26),
+                       shoulder=u(.27, .3), waist=u(.26, .29), hip=u(.21, .24), point=u(.1, .3)),
+            eye=dict(r=u(.06, .07), y=u(.22, .27), out=u(.62, .75), pupil="h", horn=False),
+            limbs=dict(hind=u(.95, 1.05), front=u(.95, 1.05), thick=u(1.0, 1.12),
+                       pose=pick(["rest", "splay"], [.6, .4])),
+            digits=dict(length=u(.75, .9), tip="round", disc=0.0,
+                        web_hind=u(.25, .45), web_front=0.0, claws=False),
+            skin=dict(warts=u(.7, 1.0), wart_size=(.7, 1.9), granules=u(0, .35), ridges=0,
+                      crests=coin(.75), parotoid=True, stitches=False),
+            pattern=dict(spots=0, spot_size=(.03, .06), blotches=int(rng.integers(3, 9)),
+                         mid_stripe=coin(.35), lat_bands=False, stripes=0,
+                         leg_bands=coin(.45), reticulate=False, chevron=False,
+                         bar=False, pale_border=coin(.3), fill=pick(fills, [.4, .2, .4])))
+    elif family == "treefrog":         # Hylidae
+        P = dict(
+            shape=dict(snout=u(.09, .12), head=u(.25, .28), neck=u(.23, .25),
+                       shoulder=u(.25, .28), waist=u(.2, .23), hip=u(.19, .22), point=u(0, .3)),
+            eye=dict(r=u(.095, .115), y=u(.21, .25), out=u(.95, 1.08),
+                     pupil=pick(["h", "v"], [.6, .4]), horn=False),
+            limbs=dict(hind=u(1.05, 1.2), front=u(1.0, 1.12), thick=u(.84, .95),
+                       pose=pick(["splay", "rest"], [.5, .5])),
+            digits=dict(length=u(1.0, 1.2), tip="disc", disc=u(1.4, 2.0),
+                        web_hind=u(.3, .55), web_front=u(0, .3), claws=False),
+            skin=dict(warts=0.0, wart_size=(.4, .8), granules=0.0, ridges=0,
+                      crests=False, parotoid=False, stitches=False),
+            pattern=dict(spots=pick([0, int(rng.integers(3, 12))], [.5, .5]), spot_size=(.015, .035),
+                         blotches=0, mid_stripe=False, lat_bands=coin(.55), stripes=0,
+                         leg_bands=coin(.3), reticulate=False, chevron=False,
+                         bar=False, pale_border=False, fill=pick(fills, [.5, .2, .3])))
+    elif family == "dartfrog":         # Dendrobatidae
+        style = pick(["stripes", "reticulate", "blotches", "spots"])
+        P = dict(
+            shape=dict(snout=u(.08, .11), head=u(.2, .23), neck=u(.18, .2),
+                       shoulder=u(.2, .23), waist=u(.16, .19), hip=u(.17, .2), point=u(.2, .5)),
+            eye=dict(r=u(.08, .095), y=u(.2, .24), out=u(.9, 1.0), pupil="dark", horn=False),
+            limbs=dict(hind=u(.95, 1.1), front=u(.95, 1.1), thick=u(.75, .9),
+                       pose=pick(["rest", "splay"], [.6, .4])),
+            digits=dict(length=u(.9, 1.05), tip="disc", disc=u(1.1, 1.4),
+                        web_hind=0.0, web_front=0.0, claws=False),
+            skin=dict(warts=0.0, wart_size=(.4, .8), granules=0.0, ridges=0,
+                      crests=False, parotoid=False, stitches=False),
+            pattern=dict(spots=int(rng.integers(6, 18)) if style == "spots" else 0,
+                         spot_size=(.02, .045), blotches=int(rng.integers(3, 7)) if style == "blotches" else 0,
+                         mid_stripe=False, lat_bands=style == "stripes",
+                         stripes=int(rng.integers(1, 3)) if style == "stripes" else 0,
+                         leg_bands=coin(.5), reticulate=style == "reticulate", chevron=False,
+                         bar=False, pale_border=False, fill=pick(fills, [.4, .4, .2])))
+    elif family == "hornedfrog":       # Ceratophryidae
+        P = dict(
+            shape=dict(snout=u(.1, .13), head=u(.3, .33), neck=u(.31, .33),
+                       shoulder=u(.3, .33), waist=u(.27, .3), hip=u(.21, .24), point=u(0, .15)),
+            eye=dict(r=u(.065, .08), y=u(.25, .29), out=u(.62, .72), pupil="h", horn=True),
+            limbs=dict(hind=u(.9, 1.0), front=u(.95, 1.05), thick=u(1.0, 1.1), pose="rest"),
+            digits=dict(length=u(.75, .85), tip="round", disc=0.0,
+                        web_hind=u(.2, .4), web_front=0.0, claws=False),
+            skin=dict(warts=u(.5, .9), wart_size=(.6, 1.4), granules=u(0, .3), ridges=0,
+                      crests=False, parotoid=False, stitches=False),
+            pattern=dict(spots=0, spot_size=(.03, .06), blotches=int(rng.integers(5, 11)),
+                         mid_stripe=coin(.3), lat_bands=False, stripes=0,
+                         leg_bands=coin(.7), reticulate=False, chevron=False,
+                         bar=coin(.5), pale_border=True, fill=pick(fills, [.5, .3, .2])))
+    elif family == "clawedfrog":       # Pipidae
+        P = dict(
+            shape=dict(snout=u(.07, .1), head=u(.17, .2), neck=u(.19, .22),
+                       shoulder=u(.24, .27), waist=u(.27, .3), hip=u(.26, .29), point=u(.3, .6)),
+            eye=dict(r=u(.04, .05), y=u(.17, .21), out=u(.42, .55), pupil="round", horn=False),
+            limbs=dict(hind=u(1.15, 1.3), front=u(.75, .9), thick=u(1.0, 1.15), pose="splay"),
+            digits=dict(length=u(1.35, 1.6), tip="point", disc=0.0,
+                        web_hind=u(.92, 1.0), web_front=0.0, claws=True),
+            skin=dict(warts=0.0, wart_size=(.4, .8), granules=0.0, ridges=0,
+                      crests=False, parotoid=False, stitches=True),
+            pattern=dict(spots=pick([0, int(rng.integers(8, 20))], [.4, .6]), spot_size=(.015, .03),
+                         blotches=0, mid_stripe=False, lat_bands=False, stripes=0,
+                         leg_bands=False, reticulate=False, chevron=False,
+                         bar=False, pale_border=False, fill=pick(fills, [.4, .2, .4])))
     else:
-        p = np.vstack([p[0], p, p[-1]])
-    out = []
-    for i in range(1, len(p) - 2):
-        p0, p1, p2, p3 = p[i - 1], p[i], p[i + 1], p[i + 2]
-        t = np.linspace(0, 1, n, endpoint=False)[:, None]
-        out.append(0.5 * ((2 * p1) + (-p0 + p2) * t
-                          + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t ** 2
-                          + (-p0 + 3 * p1 - 3 * p2 + p3) * t ** 3))
-    out = np.vstack(out)
-    if not closed:
-        out = np.vstack([out, p[-2]])
-    return out
+        raise ValueError(f"unknown family {family!r}; expected one of {FAMILIES}")
+
+    P["family"] = family
+    P["L"] = u(92, 108)
+    P["fill_angle"] = u(-55, -25)
+    return P
 
 
-def blob(cx, cy, rx, ry, rng, wobble=0.15, k=9, rot=0.0):
-    a = np.linspace(0, 2 * np.pi, k, endpoint=False) + rng.uniform(0, 1)
-    r = 1 + rng.uniform(-wobble, wobble, k)
-    pts = np.stack([np.cos(a) * rx * r, np.sin(a) * ry * r], 1)
-    c, s = math.cos(rot), math.sin(rot)
-    pts = pts @ np.array([[c, s], [-s, c]])
-    return Polygon(catmull(pts + [cx, cy])).buffer(0)
+# ── shapes ───────────────────────────────────────────────────────────────
+
+def _y(L, t):
+    """Position along the body: t=0 snout tip, t=1 vent."""
+    return (t - 0.5) * L
 
 
-def limb(points, widths, n=10):
-    """Tapered, round-ended outline along a smooth spine.
+def body_outline(P):
+    L, sh = P["L"], P["shape"]
+    pt = sh["point"]
+    left = [(-sh["snout"] * L * (1 - .7 * pt), _y(L, .015)),
+            (-sh["snout"] * L, _y(L, .05)),
+            (-sh["head"] * L * .82, _y(L, .13)),
+            (-sh["head"] * L, _y(L, .25)),
+            (-sh["neck"] * L, _y(L, .36)),
+            (-sh["shoulder"] * L, _y(L, .48)),
+            (-sh["waist"] * L, _y(L, .67)),
+            (-sh["hip"] * L, _y(L, .85)),
+            (-sh["hip"] * L * .55, _y(L, .96))]
+    tip = [(0.0, _y(L, -.02 * pt))]
+    vent = [(0.0, _y(L, 1.0))]
+    right = [(-x, y) for x, y in reversed(left)]
+    return Polygon(catmull(tip + left + vent + right, n=12)).buffer(0)
 
-    Built as a chain of convex hulls of consecutive circles, so it has round
-    joints and caps and tapers smoothly - a flat-ended strip reads as a
-    plank, not a leg.
+
+def digit_set(base, ang, lengths, spread, w, D, rng, web, scale):
+    """Fingers or toes fanned from ``base`` around direction ``ang``.
+
+    ``lengths`` runs from the first angle in the fan to the last; webbing,
+    when present, is a membrane with a scalloped edge sagging toward the
+    base between each pair of digits.
     """
-    spine = catmull(points, closed=False, n=n)
-    w = np.interp(np.linspace(0, 1, len(spine)),
-                  np.linspace(0, 1, len(widths)), widths)
-    pieces = []
-    for i in range(len(spine) - 1):
-        a = Point(*spine[i]).buffer(w[i] / 2, 16)
-        b = Point(*spine[i + 1]).buffer(w[i + 1] / 2, 16)
-        pieces.append(unary_union([a, b]).convex_hull)
-    return unary_union(pieces).buffer(0)
+    n = len(lengths)
+    angs = ang + np.linspace(-spread / 2, spread / 2, n)
+    shapes, knuckles, tips = [], [], []
+    for a, ln in zip(angs, lengths):
+        d = np.array([math.cos(a), math.sin(a)])
+        perp = np.array([-d[1], d[0]])
+        tip = base + d * ln
+        mid = base + d * ln * .55 + perp * rng.uniform(-.04, .04) * ln
+        shapes.append(limb([base, mid, tip], [w, w * .78, w * .6]))
+        if D["tip"] == "disc":
+            shapes.append(Point(*tip).buffer(w * .5 * D["disc"], 18))
+        elif D["tip"] == "round":
+            shapes.append(Point(*tip).buffer(w * .42, 14))
+        tips.append((tip, d))
+        knuckles.append(base + (tip - base) * web)
+    web_poly = Polygon()
+    if web > .08:
+        rim = [knuckles[0]]
+        for a, b in zip(knuckles[:-1], knuckles[1:]):
+            rim += [(a + b) / 2 + (base - (a + b) / 2) * .28, b]
+        web_poly = Polygon(np.vstack([base, catmull(rim, closed=False, n=5), base])).buffer(0)
+    claws = []
+    if D["claws"]:
+        # Xenopus carries small black claws on its three inner toes
+        for tip, d in tips[-3:]:
+            claws.append(LineString([tip - d * w * .2, tip + d * w * .9]))
+    return unary_union(shapes + [web_poly]), claws
 
 
-def lines_of(geom):
-    """All boundary/line pieces of a geometry, as numpy polylines."""
-    out = []
-    if geom.is_empty:
-        return out
-    if hasattr(geom, "geoms"):
-        for g in geom.geoms:
-            out += lines_of(g)
-        return out
-    if geom.geom_type == "Polygon":
-        out.append(np.asarray(geom.exterior.coords))
-        out += [np.asarray(r.coords) for r in geom.interiors]
-    elif geom.geom_type in ("LineString", "LinearRing"):
-        out.append(np.asarray(geom.coords))
+def side_limbs(P, rng, sign):
+    """Front and hind leg for one side; sign=-1 builds the left side."""
+    L, sh, lm, D = P["L"], P["shape"], P["limbs"], P["digits"]
+    j = lambda k=.012: rng.uniform(-k, k) * L          # per-side jitter
+    th = lm["thick"]
+
+    if lm["pose"] == "splay":
+        S = np.array([-sh["shoulder"] * L * .9, _y(L, .43)])
+        E = S + np.array([-.16 * L * lm["front"] + j(), .03 * L + j()])
+        W = E + np.array([-.03 * L + j(), -.15 * L * lm["front"]])
+        hand_ang = math.radians(-118)
+        H = np.array([-sh["hip"] * L * .75, _y(L, .84)])
+        K = H + np.array([-.33 * L * lm["hind"] + j(), -.04 * L + j()])
+        Hl = K + np.array([.07 * L + j(), .2 * L * lm["hind"]])
+        A = Hl + np.array([-.07, .08]) * L * lm["hind"]
+        foot_ang = math.radians(118)
+        toe_len = np.array([.45, .6, .8, 1.0, .72])        # inner -> outer
+    else:
+        S = np.array([-sh["shoulder"] * L * .92, _y(L, .44)])
+        E = S + np.array([-.07 * L + j(), .07 * L + j()])
+        W = E + np.array([-.025 * L + j(), -.14 * L * lm["front"]])
+        hand_ang = math.radians(-102)
+        H = np.array([-sh["hip"] * L * .8, _y(L, .82)])
+        K = H + np.array([-.19 * L * lm["hind"] + j(), -.17 * L * lm["hind"] + j()])
+        Hl = K + np.array([-.035 * L + j(), .31 * L * lm["hind"]])
+        A = Hl + np.array([-.11 * L, -.07 * L]) * lm["hind"]
+        foot_ang = math.radians(-155)
+        toe_len = np.array([.72, 1.0, .8, .6, .45])        # outer -> inner
+
+    arm = limb([S, E, W], [.085 * L * th, .062 * L * th, .046 * L * th])
+    fingers = np.array([.75, 1.0, .7, .55]) * .09 * L * D["length"]   # outer -> inner
+    hand, hclaws = digit_set(W, hand_ang, fingers, math.radians(rng.uniform(60, 80)),
+                             .03 * L * th, D, rng, D["web_front"], L)
+    thigh = limb([H, (H + K) / 2 + np.array([0, .02 * L]), K],
+                 [.17 * L * th, .14 * L * th, .09 * L * th])
+    shank = limb([K, Hl], [.09 * L * th, .062 * L * th])
+    tarsus = limb([Hl, A], [.06 * L * th, .05 * L * th])
+    toes, tclaws = digit_set(A, foot_ang, toe_len * .2 * L * D["length"],
+                             math.radians(rng.uniform(75, 95)), .034 * L * th, D, rng,
+                             D["web_hind"], L)
+    foot = unary_union([tarsus, toes])
+
+    parts = dict(arm=arm, hand=hand, thigh=thigh, shank=shank, foot=foot)
+    spines = dict(arm=[S, E, W], thigh=[H, K], shank=[K, Hl])
+    if sign > 0:   # mirror to the right side
+        flip = lambda g: affinity.scale(g, -1, 1, origin=(0, 0))
+        parts = {k: flip(v) for k, v in parts.items()}
+        spines = {k: [np.array([-p[0], p[1]]) for p in v] for k, v in spines.items()}
+        hclaws = [flip(c) for c in hclaws]
+        tclaws = [flip(c) for c in tclaws]
+    return parts, spines, hclaws + tclaws
+
+
+def eye_shapes(P, rng, sign):
+    L, sh, E = P["L"], P["shape"], P["eye"]
+    r = E["r"] * L
+    cx = -sh["head"] * L * E["out"] * .92 + rng.uniform(-.006, .006) * L
+    cy = _y(L, E["y"]) + rng.uniform(-.006, .006) * L
+    eye = affinity.scale(Point(cx, cy).buffer(r, 40), 1.0, 1.12)
+    iris = affinity.scale(Point(cx - r * .05, cy).buffer(r * .74, 40), 1.0, 1.12)
+    kind = E["pupil"]
+    if kind == "h":
+        pupil = affinity.scale(Point(cx - r * .08, cy).buffer(r * .34, 24), .55, 1.3)
+    elif kind == "v":
+        pupil = affinity.scale(Point(cx - r * .08, cy).buffer(r * .34, 24), 1.25, .5)
+    elif kind == "dark":
+        pupil = iris.buffer(-r * .05)
+    else:
+        pupil = Point(cx - r * .05, cy).buffer(r * .32, 20)
+    glint = Point(cx - r * .32, cy - r * .3).buffer(r * .14, 12)
+    lid = LineString(catmull([(cx - r * .9, cy - r * .7), (cx - r * .1, cy - r * 1.18),
+                              (cx + r * .75, cy - r * .9)], closed=False))
+    horn = Polygon()
+    if E["horn"]:
+        # Ceratophrys: a soft triangular projection of the upper eyelid
+        base_a = np.array([cx - r * .55, cy - r * .55])
+        base_b = np.array([cx + r * .5, cy - r * .85])
+        tip = np.array([cx - r * .5, cy - r * 2.0]) + rng.uniform(-.2, .2, 2) * r
+        horn = Polygon(catmull([base_a, (base_a + tip) / 2 + [-r * .15, 0], tip,
+                                (base_b + tip) / 2 + [r * .2, 0], base_b], closed=True, n=6)).buffer(0)
+    out = dict(eye=eye, iris=iris, pupil=pupil, glint=glint, lid=lid, horn=horn)
+    if sign > 0:
+        out = {k: affinity.scale(v, -1, 1, origin=(0, 0)) for k, v in out.items()}
     return out
 
 
-def hatch(region, spacing, angle_deg, rng, fade=0.5, light=(-1, -1)):
-    """Parallel hatch lines clipped to ``region``, starts staggered from the lit end."""
+# ── surface pattern and texture ──────────────────────────────────────────
+
+def fill(region, P, rng, s):
+    """Dark pattern fill in the frog's chosen style."""
     if region.is_empty:
         return []
-    minx, miny, maxx, maxy = region.bounds
-    cx, cy = (minx + maxx) / 2, (miny + maxy) / 2
-    r = math.hypot(maxx - minx, maxy - miny) / 2 + spacing
-    a = math.radians(angle_deg)
-    u = np.array([math.cos(a), math.sin(a)])
-    v = np.array([-u[1], u[0]])
-    segs = []
-    for o in np.arange(-r, r, spacing):
-        c = np.array([cx, cy]) + v * o
-        segs.append(LineString([c - u * r, c + u * r]))
-    clipped = region.intersection(MultiLineString(segs))
-    out = []
-    L = np.asarray(light, float); L /= np.linalg.norm(L)
-    for p in lines_of(clipped):
-        if len(p) < 2:
-            continue
-        if (p[-1] - p[0]) @ L > 0:
-            p = p[::-1]                      # p[0] = lit end
-        t = rng.uniform(0, fade)
-        a0 = p[0] + (p[-1] - p[0]) * t
-        if np.hypot(*(p[-1] - a0)) > spacing * 0.6:
-            out.append(np.vstack([a0, p[-1]]))
+    a = P["fill_angle"]
+    style = P["pattern"]["fill"]
+    if style == "dots":
+        out = []
+        for q in poisson(region, .95 * s, rng, limit=1200):
+            out += lines_of(Point(*q).buffer(.28 * s, 6).boundary)
+        return out
+    out = hatch(region, .62 * s, a, rng, 0.0, LIGHT)
+    if style == "cross":
+        out += hatch(region, .9 * s, a + 75, rng, 0.0, LIGHT)
     return out
 
 
-def crescent(poly, depth, light=(-1, -1)):
-    """fishdraw's shadow: the shape minus a copy shifted toward the light."""
-    L = np.asarray(light, float); L /= np.linalg.norm(L)
-    moved = affinity.translate(poly, xoff=L[0] * depth, yoff=L[1] * depth)
-    return poly.difference(moved)
+def bands_across(spine, shape, n, rng, L):
+    """Transverse bands across a limb, perpendicular to its spine."""
+    a, b = np.asarray(spine[0], float), np.asarray(spine[-1], float)
+    d = b - a
+    ln = np.hypot(*d)
+    if ln < 1e-6:
+        return []
+    d /= ln
+    perp = np.array([-d[1], d[0]])
+    out = []
+    for t in np.linspace(.18, .85, n):
+        c = a + d * ln * t
+        w = rng.uniform(.035, .06) * L
+        quad = Polygon([c - d * w / 2 - perp * L * .2, c + d * w / 2 - perp * L * .2,
+                        c + d * w / 2 + perp * L * .2, c - d * w / 2 + perp * L * .2])
+        band = quad.intersection(shape)
+        if not band.is_empty:
+            out.append(band)
+    return out
 
 
-def poisson(region, r, rng, tries=30, limit=400):
-    """Points inside ``region`` at least ``r`` apart (dart throwing)."""
-    minx, miny, maxx, maxy = region.bounds
-    pts = []
-    for _ in range(limit * tries):
-        if len(pts) >= limit:
-            break
-        p = np.array([rng.uniform(minx, maxx), rng.uniform(miny, maxy)])
-        if not region.contains(Point(p)):
-            continue
-        if all(np.hypot(*(p - q)) >= r for q in pts):
-            pts.append(p)
-    return pts
+def reticulate(region, rng, L):
+    """Dendrobates-style network: dark cells separated by pale lines."""
+    from shapely.ops import voronoi_diagram
+    from shapely.geometry import MultiPoint
+    pts = poisson(region, .07 * L, rng, limit=40)
+    if len(pts) < 3:
+        return []
+    cells = voronoi_diagram(MultiPoint([tuple(p) for p in pts]), envelope=region.envelope.buffer(L))
+    out = []
+    for c in cells.geoms:
+        g = c.buffer(-.014 * L).intersection(region)
+        if not g.is_empty and g.area > (.02 * L) ** 2:
+            out.append(g.buffer(.006 * L).buffer(-.006 * L))
+    return out
+
+
+def warts_on(region, P, rng, s, density):
+    out = []
+    lo, hi = P["skin"]["wart_size"]
+    gap = (6.0 - 3.0 * density) * s * (hi / 1.2) ** .5
+    for q in poisson(region, gap, rng, limit=180):
+        r = rng.uniform(lo, hi) * s
+        w = Point(*q).buffer(r, 12)
+        # a wart is a dome: the arc on its shadow side reads as a bump,
+        # where a full circle reads as a hole punched in the skin
+        arc = w.boundary.intersection(crescent(w.buffer(.01), r * .9, LIGHT).buffer(.05))
+        out += lines_of(arc)
+    return out
 
 
 # ── the frog ─────────────────────────────────────────────────────────────
 
-@dataclass
-class Part:
-    name: str
-    shape: object                    # shapely polygon
-    shade: float = 1.0               # crescent depth multiplier
-    outline: bool = True
-
-
-SPECIES = ("frog", "toad", "treefrog")
-
-
-def params(rng, species="frog"):
-    """Random proportions within the range that still reads as the species."""
-    u = rng.uniform
-    if species == "toad":
-        # squat, dry, densely warty; big parotoid gland behind the eye;
-        # short thick legs and little webbing
-        return dict(length=u(100, 110), hump=u(1.0, 1.2), snout=u(0.78, 0.9),
-                    plump=u(1.1, 1.25), eye=u(0.95, 1.08), warts=1.0,
-                    wart_size=(0.8, 2.0), wart_all=True, spots=int(rng.integers(2, 7)),
-                    toe=u(0.8, 0.92), web=0.45, pad=0.6, limb_w=1.15,
-                    pupil="h", parotoid=True, bumpy=True, stripe=False, branch=False)
-    if species == "treefrog":
-        # slender and smooth, huge protruding eyes, long thin limbs ending in
-        # big round adhesive discs; sits on a branch
-        return dict(length=u(90, 102), hump=u(0.72, 0.88), snout=u(0.85, 1.0),
-                    plump=u(0.74, 0.88), eye=u(1.35, 1.6), warts=0.0,
-                    wart_size=(0.6, 1.4), wart_all=False, spots=0,
-                    toe=u(1.05, 1.25), web=0.42, pad=3.4, limb_w=0.72,
-                    pupil=str(rng.choice(["h", "v"])), parotoid=False, bumpy=False,
-                    stripe=True, branch=True)
-    return dict(length=u(95, 115), hump=u(0.85, 1.25), snout=u(0.85, 1.15),
-                plump=u(0.9, 1.15), eye=u(0.85, 1.2), warts=u(0.0, 1.0),
-                wart_size=(0.6, 1.4), wart_all=False, spots=int(rng.integers(0, 9)),
-                toe=u(0.9, 1.2), web=0.86, pad=1.0, limb_w=1.0,
-                pupil="h", parotoid=False, bumpy=False, stripe=False, branch=False)
-
-
-def build(seed: int = 0, species: str = "frog"):
-    """Return a list of polylines (mm, y down) for one frog-like animal."""
-    if species not in SPECIES:
-        raise ValueError(f"unknown species {species!r}; expected one of {SPECIES}")
+def build(seed: int = 0, family: str | None = None):
+    """Polylines (mm, y down) for one frog seen from above."""
     rng = np.random.default_rng(seed)
-    P = params(rng, species)
-    lw = P["limb_w"]
-    s = P["length"] / 100.0
-    hp, sn, pl = P["hump"], P["snout"], P["plump"]
+    P = params(rng, family)
+    L = P["L"]
+    s = L / 100.0
+    pat, skin = P["pattern"], P["skin"]
 
-    def S(pts):
-        return [(x * s, y * s) for x, y in pts]
+    body = body_outline(P)
+    eyes = [eye_shapes(P, rng, sg) for sg in (-1, 1)]
+    sides = [side_limbs(P, rng, sg) for sg in (-1, 1)]
 
-    body = Polygon(catmull(S([
-        (-52 * sn, -2), (-46 * sn, -12), (-30, -21), (-10, -24 * hp),
-        (12, -30 * hp), (32, -26 * hp), (46, -12), (44, 8 * pl),
-        (25, 20 * pl), (0, 23 * pl), (-25, 19 * pl), (-42, 10), (-50, 4)]), n=16)).buffer(0)
-    if P["bumpy"]:
-        # lumps along the upper silhouette: a toad's outline is never smooth
-        ring = body.exterior
-        cy = body.centroid.y
-        lumps = []
-        for d in np.arange(0, ring.length, 3.2 * s):
-            q = ring.interpolate(d + rng.uniform(-1, 1) * s)
-            if q.y < cy + 4 * s:
-                lumps.append(q.buffer(rng.uniform(0.9, 2.0) * s, 12))
-        body = unary_union([body] + lumps).buffer(0.3 * s).buffer(-0.3 * s)
+    extras = []
+    if skin["parotoid"]:
+        for sg in (-1, 1):
+            g = blob(sg * -P["shape"]["head"] * L * .62, _y(L, P["eye"]["y"] + .14),
+                     .055 * L, .1 * L, rng, .06, 9, rot=sg * -.25)
+            extras.append(g)
 
-    er = 9.5 * P["eye"] * s
-    ex, ey = -30 * sn * s, (-21 - 2.5 * (P['eye'] - 1)) * s
-    eye = Point(ex, ey).buffer(er, 48)
-    iris = Point(ex - 0.8 * s, ey + 0.3 * s).buffer(er * 0.72, 48)
-    pupil = affinity.scale(Point(ex - 1.0 * s, ey + 0.5 * s).buffer(er * 0.36, 32),
-                           *((1.45, 0.62) if P['pupil'] == 'h' else (0.5, 1.5)))
-    glint = Point(ex - 3.2 * s, ey - 2.4 * s).buffer(er * 0.13, 16)
-    lid = LineString(catmull([(ex - er * 1.1, ey - er * 0.15), (ex - er * 0.2, ey - er * 1.25),
-                              (ex + er * 0.95, ey - er * 0.55)], closed=False))
-    tymp = Point(-14 * s, -11 * s).buffer(6.5 * s * min(P['eye'], 1.15), 40)
-    parotoid = (blob(-6 * s, -17 * s, 11 * s, 5 * s, rng, 0.08, 9, rot=-0.22)
-                if P['parotoid'] else Polygon())
-
-    # Near hind leg, folded the way a sitting frog's is: thigh runs forward
-    # and down from the hip to the knee, shank runs back from the knee to the
-    # heel, and the long foot lies flat on the ground pointing forward.
-    toe = P["toe"]
-    thigh = blob(24 * s, 6 * s, 24 * s, 14 * s * pl * (0.6 + 0.4 * lw), rng, 0.05, 9, rot=-0.42)
-    knee = np.array([2, 18]) * s
-    heel = np.array([33, 24]) * s
-    shank = limb([knee, np.array([18, 23]) * s, heel], [12 * s * lw, 10 * s * lw, 7 * s * lw])
-    ankle = np.array([10, 30]) * s
-    tarsus = limb([heel, np.array([22, 29.5]) * s, ankle], [6.5 * s * lw, 5.5 * s * lw, 5 * s * lw])
-    toes, tips, knuckles = [], [], []
-    for i, (dx, dy) in enumerate([(-19, -3.5), (-25, -1.2), (-30, 0.6), (-25, 2.0), (-17, 3.0)]):
-        tip = ankle + np.array([dx * toe, dy]) * s
-        mid = ankle + (tip - ankle) * 0.55 + np.array([0, 0.6 * s])
-        toes.append(limb([ankle, mid, tip], [3.6 * s * lw, 2.6 * s * lw, 2.0 * s * lw]))
-        toes.append(Point(*tip).buffer(1.5 * s * P['pad'] ** 0.8 * max(lw, 0.85), 16))  # pad
-        tips.append(tip)
-        knuckles.append(ankle + (tip - ankle) * P['web'])
-    # webbing: scalloped membrane between neighbouring toes, sagging back
-    # toward the ankle between each pair
-    rim = [knuckles[0]]
-    for a, b in zip(knuckles[:-1], knuckles[1:]):
-        sag = (a + b) / 2 + (ankle - (a + b) / 2) * 0.22
-        rim += [sag, b]
-    web = Polygon(np.vstack([ankle, catmull(rim, closed=False, n=5), ankle])).buffer(0)
-    foot = unary_union(toes + [web, tarsus])
-
-    # near front leg: upper arm back and down, forearm forward to the hand
-    shoulder = np.array([-30, 8]) * s
-    elbow = np.array([-25, 23]) * s
-    wrist = np.array([-37, 31]) * s
-    arm = limb([shoulder, elbow, wrist], [9 * s * lw, 6.5 * s * lw, 4.5 * s * lw])
-    fingers = []
-    for dx, dy in [(-9, -1.2), (-10, 1.0), (-6, 2.6), (2, 2.0)]:
-        tip = wrist + np.array([dx, dy]) * s
-        fingers.append(limb([wrist, (wrist + tip) / 2, tip], [3.2 * s * lw, 2.3 * s * lw, 1.8 * s * lw]))
-        fingers.append(Point(*tip).buffer(1.3 * s * P['pad'] ** 0.8 * max(lw, 0.85), 14))
-    hand = unary_union(fingers)
-
-    # far legs, mostly hidden: shifted back and up
-    far_hand = affinity.translate(unary_union([arm, hand]), 9 * s, -3 * s)
-    far_foot = affinity.translate(foot, -6 * s, -2.5 * s)
-
-    parts = [
-        Part("hand", hand, 0.6), Part("arm", arm, 0.8),
-        Part("foot", foot, 0.6), Part("shank", shank, 1.0), Part("thigh", thigh, 1.2),
-        Part("eye", eye, 0.0), Part("parotoid", parotoid, 0.8), Part("tymp", tymp, 0.0),
-        Part("body", body, 1.6),
-        Part("far_hand", far_hand, 0.0), Part("far_foot", far_foot, 0.0),
-    ]
+    # draw order, front to back: eyes on top, then body, then limbs
+    order = []
+    for e in eyes:
+        order += [("eye", e["eye"], .5), ("horn", e["horn"], .6)]
+    order += [("parotoid", g, .7) for g in extras]
+    order.append(("body", body, 1.3))
+    for parts, _, _ in sides:
+        order += [("hand", parts["hand"], .5), ("arm", parts["arm"], .8)]
+    for parts, _, _ in sides:
+        order += [("thigh", parts["thigh"], 1.0), ("shank", parts["shank"], .8),
+                  ("foot", parts["foot"], .5)]
+    order = [o for o in order if not o[1].is_empty]
 
     out = []
     front = Polygon()
-    light = (-1, -1.2)
-
-    def emit(geoms, mask=None):
-        for g in geoms if isinstance(geoms, list) else [geoms]:
-            g = g if mask is None else g.difference(mask)
-            out.extend(lines_of(g))
-
-    parts = [q for q in parts if not q.shape.is_empty]
-    for part in parts:
-        visible = part.shape.difference(front)
-        if part.outline:
-            emit(LineString(part.shape.exterior.coords) if part.shape.geom_type == "Polygon"
-                 else part.shape.boundary, front)
-        if part.shade > 0:
-            band = crescent(part.shape, 4.5 * s * part.shade, light).intersection(visible)
-            for h in hatch(band, 1.15 * s, 35, rng, 0.5, light):
-                out.append(h)
-        front = front.union(part.shape)
-
-    # eye detail sits on top of everything behind it
-    out += lines_of(iris.boundary)
-    out += hatch(pupil.difference(glint), 0.45 * s, 10, rng, 0.0, light)
-    out += lines_of(pupil.boundary.difference(glint))
-    out += lines_of(lid)
-    out += hatch(crescent(iris, 2.5 * s, light).difference(pupil), 0.9 * s, 35, rng, 0.4, light)
-    out += lines_of(Point(*tymp.centroid.coords[0]).buffer(4.2 * s * min(P['eye'], 1.15), 32)
-                    .boundary.difference(parotoid))
-
-    # body surface: mouth, dorsolateral fold, spots, warts
-    others = unary_union([hand, arm, foot, shank, thigh, eye, tymp, parotoid])
-    skin = body.difference(others)
-    mouth = LineString(catmull(S([(-51 * sn, 1), (-40, 4), (-26, 4.5), (-17, 1)]), closed=False))
-    out += lines_of(mouth.intersection(body.buffer(-0.6 * s)).difference(others))
-    fold = LineString(catmull(S([(-18, -18), (0, -23 * hp), (20, -26 * hp), (36, -18)]), closed=False))
-    out += lines_of(fold.difference(others))
-
-    back = skin.union(thigh.difference(unary_union([shank, foot])))
-    back = back.difference(unary_union([eye, tymp]).buffer(2.0 * s))
-    for _ in range(P["spots"]):
-        c = np.array(back.representative_point().coords[0])
-        for _ in range(20):
-            minx, miny, maxx, maxy = back.bounds
-            q = np.array([rng.uniform(minx, maxx), rng.uniform(miny, maxy * 0.6 + miny * 0.4)])
-            if back.contains(Point(q)):
-                c = q
-                break
-        spot = blob(*c, rng.uniform(3, 6.5) * s, rng.uniform(2.2, 4.5) * s, rng, 0.25,
-                    rot=rng.uniform(0, 3)).intersection(back)
-        out += lines_of(spot.boundary)
-        out += hatch(spot, 0.8 * s, -40, rng, 0.0, light)
-
-    if P["stripe"]:
-        # dark band from the snout through the eye and along the flank,
-        # edged below by a pale line, as on many tree frogs
-        path = LineString(catmull(S([(-50 * sn, -6), (-30 * sn, -19), (-12, -12),
-                                     (12, -10 * hp), (38, -6)]), closed=False))
-        band = path.buffer(2.0 * s).intersection(skin).difference(eye.buffer(0.5 * s))
-        out += lines_of(band.boundary)
-        out += hatch(band, 0.6 * s, -35, rng, 0.0, light)
-
-    if P["warts"] > 0.15:
-        region = skin if P["wart_all"] else skin.intersection(affinity.translate(body, 0, -6 * s))
-        if P["wart_all"]:
-            region = region.union(thigh.difference(unary_union([shank, foot])))
-            region = region.union(parotoid)
-        lo, hi = P["wart_size"]
-        limit = 140 if P["wart_all"] else 60
-        for p in poisson(region, (5.5 - 2.5 * P["warts"]) * s * (hi / 1.4) ** 0.5, rng, limit=limit):
-            r = rng.uniform(lo, hi) * s
-            w = Point(*p).buffer(r, 12)
-            # a wart is a tiny dome: an arc on its shadow side reads better
-            # than a full circle, which looks like a hole
-            arc = w.boundary.intersection(crescent(w.buffer(0.01), r * 0.9, light).buffer(0.05))
-            out += lines_of(arc)
-
-    # a little ground under the feet: a few short strokes along the line
-    # the feet rest on, densest right under them
-    feet = unary_union([foot, hand])
-    minx, miny, maxx, maxy = feet.bounds
-    if P["branch"]:
-        # a branch under the feet: two long edges, shadow hatching along the
-        # underside and a few bark ticks, clipped behind the feet
-        y0 = maxy - 1.2 * s
-        th = rng.uniform(7, 10) * s
-        x0, x1 = minx - 30 * s, maxx + 45 * s
-        top = [(x0, y0 + 1.5 * s), ((x0 + x1) / 2, y0), (x1, y0 + 2.0 * s)]
-        bot = [(x1, y0 + 2.0 * s + th), ((x0 + x1) / 2, y0 + th + 0.5 * s), (x0, y0 + 1.5 * s + th)]
-        branch = Polygon(catmull(top, closed=False).tolist() + catmull(bot, closed=False).tolist()).buffer(0)
-        mask = unary_union([q.shape for q in parts])
-        out += lines_of(LineString(catmull(top, closed=False)).difference(mask))
-        out += lines_of(LineString(catmull(bot, closed=False)).difference(mask))
-        shade = crescent(branch, th * 0.45, light).difference(mask)
-        out += hatch(shade, 1.0 * s, 35, rng, 0.5, light)
-        for _ in range(int((x1 - x0) / (6 * s))):
-            bx = rng.uniform(x0 + 3 * s, x1 - 3 * s)
-            by = rng.uniform(y0 + 0.3 * th, y0 + 0.8 * th)
-            tick = LineString([(bx, by), (bx + rng.uniform(3, 7) * s, by + rng.uniform(-0.6, 0.6) * s)])
-            out += lines_of(tick.intersection(branch).difference(mask))
-        return [np.asarray(q, float) for q in out if len(q) >= 2]
-    for i in range(6):
-        gy = maxy + (0.8 + i * 1.4) * s
-        x0 = rng.uniform(minx - 6 * s, maxx - 12 * s)
-        L = rng.uniform(10, 30) * s * (1 - i / 8)
-        out.append(np.array([[x0, gy], [x0 + L, gy + rng.uniform(-0.4, 0.4) * s]]))
-
-    return [np.asarray(p, float) for p in out if len(p) >= 2]
-
-
-# ── seen from above ──────────────────────────────────────────────────────
-
-def build_topdown(seed: int = 0):
-    """A frog seen from directly above, legs splayed, facing up the page.
-
-    Every part is a different shape from this angle, so it is built
-    separately rather than projected from the side view: the body is a
-    symmetric egg, the eyes bulge out of the head's outline, and the legs
-    fan out sideways instead of folding under.
-    """
-    rng = np.random.default_rng(seed)
-    u = rng.uniform
-    s = u(0.95, 1.1)
-    wd = u(1.15, 1.35)         # body width
-    hd = u(0.82, 0.95)         # head length
-    lw = u(0.9, 1.1)           # limb thickness
-    light = (-1, -1.2)
-
-    def mirror(pts):
-        pts = np.asarray(pts, float)
-        return np.vstack([pts, pts[::-1][1:-1] * [-1, 1]])
-
-    half = [(0, -46 * hd), (-9, -45 * hd), (-17 * wd, -36 * hd), (-21 * wd, -20),
-            (-25 * wd, 0), (-24 * wd, 18), (-17 * wd, 32), (-7, 37), (0, 38)]
-    body = Polygon(catmull(mirror(half) * s, n=12)).buffer(0)
-
-    parts = []
-    eyes, details = [], []
-    for side in (-1, 1):
-        j = lambda: u(-1.2, 1.2) * s           # small asymmetry, so it isn't a stamp
-        # eyes bulge out past the head outline
-        e = Point(side * 15 * wd * s + j(), -30 * hd * s + j()).buffer(7.5 * s, 40)
-        eyes.append(e)
-        c = np.array(e.centroid.coords[0])
-        details.append(affinity.scale(Point(*c).buffer(3.4 * s, 24), 0.62, 1.35))   # pupil
-        # front leg: shoulder out to the elbow, forearm forward to a splayed hand
-        sh = np.array([side * 18 * wd, -10]) * s
-        el = np.array([side * 31 * wd, -2]) * s + [j(), j()]
-        wr = np.array([side * 34 * wd, -19]) * s + [j(), j()]
-        arm = limb([sh, el, wr], [8 * s * lw, 6 * s * lw, 4.5 * s * lw])
-        fingers = []
-        for a in np.radians([-150, -115, -80, -50]):
-            tip = wr + np.array([side * -math.cos(a) * 9, math.sin(a) * 9]) * s
-            fingers.append(limb([wr, tip], [2.8 * s * lw, 1.8 * s * lw]))
-            fingers.append(Point(*tip).buffer(1.4 * s, 12))
-        hand = unary_union(fingers)
-        # hind leg: thigh out and back, shank folded forward, long foot
-        # fanning back and out with webbed toes
-        hip = np.array([side * 15 * wd, 30]) * s
-        knee = np.array([side * 40 * wd, 26]) * s + [j(), j()]
-        heel = np.array([side * 30 * wd, 46]) * s + [j(), j()]
-        thigh = limb([hip, (hip + knee) / 2 + [0, 3 * s], knee], [17 * s * lw, 14 * s * lw, 9 * s * lw])
-        shank = limb([knee, heel], [9 * s * lw, 6 * s * lw])
-        ankle = heel + np.array([side * 9, 8]) * s
-        tarsus = limb([heel, ankle], [6 * s * lw, 5 * s * lw])
-        toes, knuckles = [], []
-        for a in np.radians([10, 35, 58, 80, 100]):
-            ln = (16 + 7 * math.sin(math.radians(58) - abs(a - math.radians(58)))) * s
-            tip = ankle + np.array([side * math.cos(a), math.sin(a)]) * ln
-            toes.append(limb([ankle, (ankle + tip) / 2, tip], [3.4 * s * lw, 2.4 * s * lw, 1.8 * s * lw]))
-            toes.append(Point(*tip).buffer(1.5 * s, 12))
-            knuckles.append(ankle + (tip - ankle) * 0.8)
-        rim = [knuckles[0]]
-        for a, b in zip(knuckles[:-1], knuckles[1:]):
-            rim += [(a + b) / 2 + (ankle - (a + b) / 2) * 0.25, b]
-        web = Polygon(np.vstack([ankle, catmull(rim, closed=False, n=5), ankle])).buffer(0)
-        foot = unary_union(toes + [web, tarsus])
-        parts += [("hand", hand, 0.6), ("arm", arm, 0.8), ("thigh", thigh, 1.1),
-                  ("shank", shank, 0.9), ("foot", foot, 0.6)]
-
-    order = ([("eye", e, 0.6) for e in eyes] + [("body", body, 1.4)]
-             + [q for q in parts if q[0] in ("thigh",)]
-             + [q for q in parts if q[0] in ("shank", "foot", "arm", "hand")])
-
-    out, front = [], Polygon()
+    visible = {}
     for name, shape, shade in order:
-        visible = shape.difference(front)
+        vis = shape.difference(front)
+        visible.setdefault(name, []).append(vis)
         out += lines_of(shape.boundary.difference(front))
         if shade > 0:
-            band = crescent(shape, 4.0 * s * shade, light).intersection(visible)
-            out += hatch(band, 1.1 * s, 35, rng, 0.5, light)
+            band = crescent(shape, .055 * L * shade, LIGHT).intersection(vis)
+            out += hatch(band, 1.1 * s, 35, rng, .5, LIGHT)
         front = front.union(shape)
+    silhouette = front
+    vis = {k: unary_union(v) for k, v in visible.items()}
 
-    for e, pupil in zip(eyes, details):
-        out += hatch(pupil, 0.45 * s, 80, rng, 0.0, light)
-        out += lines_of(pupil.boundary)
-        out += lines_of(e.buffer(-1.8 * s).boundary)
+    # eye detail
+    for e in eyes:
+        out += lines_of(e["iris"].boundary)
+        dark = e["pupil"].difference(e["glint"])
+        out += hatch(dark, .42 * s, 80, rng, 0.0, LIGHT)
+        out += lines_of(dark.boundary)
+        out += lines_of(e["lid"].difference(e["eye"].buffer(-.4 * s)).intersection(e["eye"].buffer(1.2 * s)))
 
-    back = body.difference(unary_union(eyes).buffer(2 * s))
-    # two dorsolateral ridges and a nostril pair
-    for side in (-1, 1):
-        ridge = LineString(catmull(np.array([(side * 11, -24), (side * 13 * wd, 0),
-                                             (side * 12 * wd, 24), (side * 8, 36)]) * s, closed=False))
-        out += lines_of(ridge.intersection(back))
-        out += lines_of(Point(side * 4 * s, -41 * hd * s).buffer(0.8 * s, 8).boundary)
+    eyes_all = unary_union([e["eye"] for e in eyes] + [e["horn"] for e in eyes])
+    back = vis.get("body", Polygon()).difference(eyes_all.buffer(1.5 * s))
+    for g in extras:
+        back = back.difference(g.buffer(.8 * s))
 
-    for _ in range(int(rng.integers(3, 10))):
-        for _ in range(20):
-            minx, miny, maxx, maxy = back.bounds
-            q = np.array([u(minx, maxx), u(miny * 0.6, maxy)])
-            if back.contains(Point(q)):
-                break
-        spot = blob(*q, u(3, 6.5) * s, u(2.5, 5) * s, rng, 0.25, rot=u(0, 3)).intersection(back)
-        out += lines_of(spot.boundary)
-        out += hatch(spot, 0.8 * s, -40, rng, 0.0, light)
+    # nostrils and, for toads, cranial crests
+    for sg in (-1, 1):
+        out += lines_of(Point(sg * .045 * L, _y(L, .07)).buffer(.7 * s, 8).boundary)
+        if skin["crests"]:
+            ex = -sg * P["shape"]["head"] * L * P["eye"]["out"] * .92
+            cx = ex + sg * P["eye"]["r"] * L * 1.25
+            crest = LineString(catmull([(cx * .9, _y(L, P["eye"]["y"] - .09)),
+                                        (cx, _y(L, P["eye"]["y"])),
+                                        (cx * 1.15, _y(L, P["eye"]["y"] + .1))], closed=False))
+            out += lines_of(crest.intersection(back))
 
-    for q in poisson(back.buffer(-2 * s), u(3.5, 5.5) * s, rng, limit=70):
-        r = u(0.6, 1.3) * s
-        w = Point(*q).buffer(r, 12)
-        out += lines_of(w.boundary.intersection(crescent(w.buffer(0.01), r * 0.9, light).buffer(0.05)))
+    # dorsolateral folds
+    if skin["ridges"]:
+        for sg in (-1, 1):
+            for k in range(skin["ridges"] // 2):
+                x0 = sg * (.09 + .05 * k) * L
+                ridge = LineString(catmull([(x0 * .9, _y(L, .3)), (x0 * 1.15, _y(L, .55)),
+                                            (x0 * 1.05, _y(L, .8)), (x0 * .7, _y(L, .93))],
+                                           closed=False))
+                out += lines_of(ridge.intersection(back))
+
+    # pattern: the dark marks
+    marks = []
+    if pat["mid_stripe"]:
+        stripe = LineString([(0, _y(L, .06)), (0, _y(L, .97))]).buffer(.012 * L)
+        out += lines_of(stripe.intersection(back).boundary)
+    if pat["bar"]:
+        e0 = np.array(eyes[0]["eye"].centroid.coords[0])
+        e1 = np.array(eyes[1]["eye"].centroid.coords[0])
+        marks.append(LineString([e0, e1]).buffer(.018 * L).intersection(back))
+    if pat["chevron"]:
+        w = LineString([(-.11 * L, _y(L, .37)), (-.04 * L, _y(L, .45)), (0, _y(L, .4)),
+                        (.04 * L, _y(L, .45)), (.11 * L, _y(L, .37))])
+        marks.append(w.buffer(.014 * L).intersection(back))
+    if pat["lat_bands"]:
+        for sg in (-1, 1):
+            band = LineString(catmull([(sg * .05 * L, _y(L, .02)),
+                                       (sg * P["shape"]["head"] * L * .62, _y(L, .2)),
+                                       (sg * P["shape"]["shoulder"] * L * .72, _y(L, .5)),
+                                       (sg * P["shape"]["hip"] * L * .7, _y(L, .9))], closed=False))
+            marks.append(band.buffer(.028 * L).intersection(back))
+    for k in range(pat["stripes"]):
+        x0 = 0 if pat["stripes"] == 1 else (k - .5) * .1 * L
+        marks.append(LineString([(x0, _y(L, .12)), (x0, _y(L, .95))]).buffer(.022 * L).intersection(back))
+    for _ in range(pat["spots"]):
+        q = _point_in(back, rng)
+        if q is not None:
+            lo, hi = pat["spot_size"]
+            marks.append(blob(*q, rng.uniform(lo, hi) * L, rng.uniform(lo, hi) * L, rng, .25,
+                              rot=rng.uniform(0, 3)).intersection(back))
+    for _ in range(pat["blotches"]):
+        q = _point_in(back, rng)
+        if q is not None:
+            marks.append(blob(*q, rng.uniform(.05, .09) * L, rng.uniform(.035, .07) * L, rng, .3,
+                              k=11, rot=rng.uniform(0, 3)).intersection(back))
+    if pat["reticulate"]:
+        marks += reticulate(back, rng, L)
+    if pat["leg_bands"]:
+        for parts, spines, _ in sides:
+            for limb_name in ("thigh", "shank", "arm"):
+                region = vis.get(limb_name, Polygon()).intersection(parts[limb_name])
+                n = 3 if limb_name == "thigh" else 2
+                marks += bands_across(spines[limb_name], region, n, rng, L)
+
+    marks = [m for m in marks if not m.is_empty and m.area > (.4 * s) ** 2]
+    # Overlapping marks become one mark: two blotches drawn separately leave
+    # a stray outline running through the middle of the dark patch.
+    if marks:
+        merged = unary_union(marks)
+        marks = list(merged.geoms) if hasattr(merged, "geoms") else [merged]
+    for m in marks:
+        out += lines_of(m.boundary)
+        out += fill(m, P, rng, s)
+        if pat["pale_border"]:
+            out += lines_of(m.buffer(.9 * s).boundary.intersection(back))
+    marked = unary_union(marks) if marks else Polygon()
+
+    # skin texture
+    plain = back.difference(marked.buffer(.5 * s))
+    if skin["warts"] > 0:
+        region = plain
+        if P["family"] in ("toad", "hornedfrog"):
+            for g in extras:
+                region = region.union(g.buffer(-1 * s))
+            region = region.union(vis.get("thigh", Polygon()).difference(marked))
+        out += warts_on(region, P, rng, s, skin["warts"])
+    if skin["granules"] > 0:
+        for q in poisson(plain, (2.6 - 1.2 * skin["granules"]) * s, rng, limit=500):
+            out += lines_of(Point(*q).buffer(.25 * s, 5).boundary)
+    if skin["stitches"]:
+        # Xenopus lateral-line organs: rows of short dashes along the flanks
+        for sg in (-1, 1):
+            for k, f in enumerate((.6, .8)):
+                path = LineString(catmull([(sg * P["shape"]["head"] * L * .5 * f, _y(L, .15)),
+                                           (sg * P["shape"]["shoulder"] * L * f, _y(L, .45)),
+                                           (sg * P["shape"]["waist"] * L * f, _y(L, .7)),
+                                           (sg * P["shape"]["hip"] * L * f * .9, _y(L, .9))],
+                                          closed=False))
+                n = int(path.length / (3.0 * s))
+                for i in range(n):
+                    a = path.interpolate(i * 3.0 * s)
+                    b = path.interpolate(i * 3.0 * s + 1.4 * s)
+                    seg = LineString([a, b]).intersection(back)
+                    out += lines_of(seg)
+
+    for _, _, claws in sides:
+        for c in claws:
+            out += lines_of(c.buffer(.25 * s).boundary)
+
+    # soft drop shadow down-right of the animal, a few faint strokes
+    off = affinity.translate(silhouette, .025 * L, .035 * L)
+    shadow = off.difference(silhouette.buffer(.6 * s))
+    out += hatch(shadow, 1.5 * s, 35, rng, .65, LIGHT)
 
     return [np.asarray(q, float) for q in out if len(q) >= 2]
+
+
+def _point_in(region, rng, tries=40):
+    if region.is_empty:
+        return None
+    minx, miny, maxx, maxy = region.bounds
+    for _ in range(tries):
+        q = np.array([rng.uniform(minx, maxx), rng.uniform(miny, maxy)])
+        if region.contains(Point(q)):
+            return q
+    return None

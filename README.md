@@ -51,19 +51,24 @@ photos in [docs/evaluation](docs/evaluation/README.md).
 
 ## Drawing from scratch
 
-Besides converting photos, it can generate subjects procedurally, in the
-manner of LingDong's [fishdraw](https://github.com/LingDong-/fishdraw):
-`frog`, `toad` (squat, warty, parotoid gland), `treefrog` (slender, big eyes,
-toe discs, sitting on a branch) and `frog-above` (seen from overhead). Each
-seed gives a different animal; click *Draw a new one* in the app, or:
+Besides converting photos, it can generate frogs from scratch, seen from
+above, structured like LingDong's [fishdraw](https://github.com/LingDong-/fishdraw):
+every part has several anatomical variants chosen independently, so the
+combinations multiply. Each frog first draws a real family - true frog, toad,
+tree frog, poison dart frog, horned frog or clawed frog - and the family sets
+the range every other choice is drawn from, so results stay plausible: toads
+get warts, parotoid glands and short webbing, tree frogs get toe discs, dart
+frogs get bold stripes, network or blotch patterns, clawed frogs get tiny eyes,
+huge webbed feet and lateral-line stitches.
 
-    python3 image_to_gcode.py --draw toad --seed 7
+    python3 image_to_gcode.py --draw frog --seed 7        # any family
+    python3 image_to_gcode.py --draw dartfrog --seed 3
 
 ![Procedural frogs](docs/frogs.jpg)
 
-Parts are closed polygons listed front to back, each clipped by what is in
+Parts are closed polygons drawn front to back, each clipped by what is in
 front of it, and shaded fishdraw's way: hatch the part of each shape not
-covered by a copy shifted toward the light. Each plots in about 5-7 minutes.
+covered by a copy shifted toward the light. Generation takes 0.1-1 s.
 
 ## Repository layout
 
@@ -73,7 +78,7 @@ image_to_gcode.py   command line
 run.sh              starts the web UI with the right interpreter
 plotter/            the library: tone, engines, paths, G-code
   engines/          one module per drawing style
-  procedural/       subjects generated from scratch (frogs and toads)
+  procedural/       frogs generated from scratch
 tools/
   evaluate.py       render the photo set through engines, side by side
   gcode_rotate.py   turn an existing portrait G-code file to landscape

@@ -554,7 +554,7 @@ HTML = r"""
         </div>
         <div class="or">or draw one from scratch</div>
         <div class="pair">
-          <select id="subject"><option value="frog" selected>Frog</option><option value="toad">Toad</option><option value="treefrog">Tree frog</option><option value="frog-above">Frog from above</option></select>
+          <select id="subject"><option value="frog" selected>Frog (any family)</option><option value="truefrog">True frog</option><option value="toad">Toad</option><option value="treefrog">Tree frog</option><option value="dartfrog">Poison dart frog</option><option value="hornedfrog">Horned frog</option><option value="clawedfrog">Clawed frog</option></select>
           <input type="number" id="seed" placeholder="random seed">
         </div>
         <button class="btn ghost" id="drawSubject" style="margin-top:8px">Draw a new one</button>
