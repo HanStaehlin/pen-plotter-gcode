@@ -106,9 +106,13 @@ run.sh              starts the web UI with the right interpreter
 plotter/            the library: tone, engines, paths, G-code
   engines/          one module per drawing style
   procedural/       frogs generated from scratch
+  grbl.py           USB sender for the plotter (GRBL)
+  speedtest.py      the speed test sheet
+tests/              pytest suite
 tools/
   evaluate.py       render the photo set through engines, side by side
   gcode_rotate.py   turn an existing portrait G-code file to landscape
+  fake_grbl.py      pretend GRBL 0.9i for testing the sender
 samples/
   photos/           CC0 test photographs (see CREDITS.md)
   wiresphere.svg    vector test drawing
