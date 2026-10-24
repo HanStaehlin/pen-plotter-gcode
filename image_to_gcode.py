@@ -78,7 +78,10 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--hatch-share", type=float, default=0.30, metavar="F",
                    help="crosshatch: coverage one direction may supply "
                         "before the next is laid across it")
-    g.add_argument("--hilbert-smooth", type=float, default=0.35, metavar="F",
+    g.add_argument("--subject-focus", type=float, default=0.8, metavar="F",
+                   help="every engine but illustration: lighten the background "
+                        "using depth (0 = whole frame alike)")
+    g.add_argument("--hilbert-smooth", type=float, default=0.5, metavar="F",
                    help="hilbert: round the right angles; plots faster")
     g.add_argument("--hilbert-detail", type=float, default=1.2, metavar="F",
                    help="hilbert: extra subdivision where fine detail lives")
@@ -210,6 +213,7 @@ def config_from_args(args) -> Config:
     cfg.render.illustration_shadow = args.shadow
     cfg.render.illustration_focus = args.focus
     cfg.render.hilbert_smooth = args.hilbert_smooth
+    cfg.render.subject_focus = args.subject_focus
     cfg.render.hilbert_detail = args.hilbert_detail
     cfg.render.flow_coherence = args.flow_coherence
     cfg.render.contour_levels = args.levels

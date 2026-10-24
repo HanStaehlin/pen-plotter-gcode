@@ -77,7 +77,8 @@ def config_from_form() -> Config:
     cfg.render.outline_strength = _f("outline_strength", 0.6)
     cfg.render.hatch_layers = _i("hatch_layers", 3)
     cfg.render.hatch_share = _f("hatch_share", 0.30)
-    cfg.render.hilbert_smooth = _f("hilbert_smooth", 0.35)
+    cfg.render.hilbert_smooth = _f("hilbert_smooth", 0.5)
+    cfg.render.subject_focus = _f("subject_focus", 0.8)
     cfg.render.hilbert_detail = _f("hilbert_detail", 1.2)
     cfg.render.hatch_coherence = _f("hatch_coherence", 0.45)
     cfg.render.region_segments = _i("region_segments", 400)
@@ -588,6 +589,12 @@ HTML = r"""
             <span class="v" id="time_limitV">off</span></label>
           <input type="range" id="time_limit" min="0" max="60" step="1" value="0">
         </div>
+        <div class="ctl" data-for="crosshatch,flowlines,adaptive,waves,hilbert,tsp,contours">
+          <label><span>Subject focus
+            <span class="tip" title="Uses depth to lighten the background so the drawing - and the plot time - goes to the subject. Hilbert fades the background out completely. Turn down for landscapes or to keep a full-frame texture.">i</span></span>
+            <span class="v" id="subject_focusV">0.80</span></label>
+          <input type="range" id="subject_focus" min="0" max="1" step="0.05" value="0.8">
+        </div>
         <div class="ctl" data-for="flowlines">
           <label>Follow image structure <span class="v" id="coherenceV">100%</span></label>
           <input type="range" id="coherence" min="0" max="1" step="0.05" value="1">
@@ -658,9 +665,9 @@ HTML = r"""
             <span>Corner rounding
               <span class="tip" title="A plotter nearly stops at every square corner, and a Hilbert curve is nothing but corners. Rounding them plots faster and softens the maze into something closer to drawn line.">i</span>
             </span>
-            <span class="v" id="hilbert_smoothV">0.35</span>
+            <span class="v" id="hilbert_smoothV">0.50</span>
           </label>
-          <input type="range" id="hilbert_smooth" min="0" max="0.5" step="0.05" value="0.35">
+          <input type="range" id="hilbert_smooth" min="0" max="0.5" step="0.05" value="0.5">
         </div>
         <div class="ctl" data-for="hilbert">
           <label>Detail depth <span class="v" id="hilbert_detailV">1.2</span></label>
@@ -943,7 +950,7 @@ const FMT = {
   region_threshold:v=>(+v).toFixed(2), region_segments:v=>v,
   illustration_shadow:v=>(+v).toFixed(2), illustration_focus:v=>(+v).toFixed(2),
   illustration_tone:v=>(+v).toFixed(2),
-  time_limit:v=>(+v===0?'off':v+' min'),
+  time_limit:v=>(+v===0?'off':v+' min'), subject_focus:v=>(+v).toFixed(2),
   spacing:v=>(+v===0?'auto':(+v).toFixed(1)+' mm'),
   pen:v=>(+v).toFixed(2)+' mm', contrast:v=>(+v).toFixed(1),
   detail:v=>(+v).toFixed(2), exposure:v=>(+v).toFixed(2), gamma:v=>(+v).toFixed(2),
@@ -1029,7 +1036,7 @@ const FIELDS = ['ink','angle','coherence','levels','points','depth','coarsest',
   'illustration_shading','illustration_shadow','illustration_focus','illustration_tone',
   'pen','paper','margin','contrast','detail','exposure','gamma','chroma',
   'ink_response','resolution','merge','bridge','bridge_min_ink','max_coverage',
-  'feed','travel_feed','time_limit'];
+  'feed','travel_feed','time_limit','subject_focus'];
 const CHECKS = ['outline','portrait','rotate_out','invert','flip_x','flip_y',
   'remove_bg','show_travel','use_depth'];
 

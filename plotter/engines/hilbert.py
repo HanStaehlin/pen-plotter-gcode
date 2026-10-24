@@ -187,8 +187,19 @@ def _leaf_depths(coverage, side, n, min_depth, max_depth, pen_px,
     # blank cells, which would shred one continuous curve into hundreds of
     # dashes for no visible gain.  Opening the mask keeps genuine white areas
     # white at full size while closing over the speckle.
-    empty = (cv2.resize(sq, (n, n), interpolation=cv2.INTER_AREA) <= 0)
-    empty = empty.astype(np.uint8)
+    #
+    # The coarsest cell the curve may use still lays down pen * 2^min / side
+    # of coverage, and it lays it whether the paper there wanted that much
+    # or not: a pale wall behind a portrait became a full-page maze, darker
+    # than the photo and a third of the plot time.  Below half of that floor
+    # the same round-to-nearest rule the hatching engines use leaves paper.
+    floor = 0.5 * pen_px * (1 << min_depth) / side
+    # Judged on a smooth map rather than per coarse block, or the edge of
+    # the blank area comes out as a staircase of 4 mm squares.
+    fine = cv2.resize(sq, (n, n), interpolation=cv2.INTER_AREA)
+    cell = n / float(1 << min_depth)
+    local = cv2.GaussianBlur(fine, (0, 0), max(0.5, 0.5 * cell))
+    empty = ((fine <= 0) | (local < floor)).astype(np.uint8)
     span = max(1, int(round(white_px * n / side)))
     if span > 1:
         k = np.ones((span, span), np.uint8)

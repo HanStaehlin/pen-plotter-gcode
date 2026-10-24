@@ -50,6 +50,45 @@ def default_scores(px_paths, coverage) -> list[float]:
     return out
 
 
+def lighten(draw, first, cfg, finish, minutes: float, note=lambda m: None):
+    """Fit ``minutes`` by redrawing everything lighter, for unranked engines.
+
+    ``draw(ink)`` re-runs the engine on ``ink`` x the tone target and returns
+    millimetre paths; ``first`` is its output at full ink.  Plot time grows
+    roughly in proportion to ink, so each guess scales by target / time and
+    the bracket keeps it honest.  Returns (finished paths, info dict).
+    """
+    target = minutes * 60.0
+    out = finish(first)
+    t = gcode.estimate_time(out, cfg)["total_s"]
+    info = {"pruned": 0, "budget_cut": 0, "ink": 1.0}
+    if t <= target:
+        return out, info
+    lo, hi, ink = 0.0, 1.0, 1.0
+    best = None
+    for _ in range(7):
+        guess = ink * target / max(t, 1e-9) * 0.98
+        ink = float(np.clip(guess, lo + 0.25 * (hi - lo), hi - 0.25 * (hi - lo)))
+        note(f"fitting {minutes:g} min budget (ink {ink:.2f})")
+        out = finish(draw(ink))
+        t = gcode.estimate_time(out, cfg)["total_s"]
+        if t <= target:
+            lo, best = ink, (out, ink)
+            if t >= 0.95 * target:
+                break
+        else:
+            hi = ink
+        if hi - lo < 0.01:
+            break
+    if best is None:
+        # Nothing the engine draws fits - whatever is left over (an outline
+        # overlay) already takes longer than the limit.  The caller falls
+        # back to ranking strokes.
+        return None, info
+    info["ink"] = best[1]
+    return best[0], info
+
+
 def select(mm_paths, scores, cfg, finish, minutes: float = 0.0,
            prune_below: float = 0.0, note=lambda m: None):
     """Prune weak strokes, then keep the best that fit in ``minutes``.

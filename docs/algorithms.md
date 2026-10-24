@@ -68,6 +68,32 @@ move. Feed rate alone is useless (a machine at 400 mm/s² never reaches
 just as wrong — it would price the Hilbert curve, which is nothing but corners,
 at triple its real cost.
 
+## Hilbert and Waves: why they are slow, and what helps
+
+Both styles earn tone by wiggling, and a wiggle is a tight curve. A plotter
+can only take a curve of radius r at about √(acceleration × r): at the
+default 400 mm/s² the waves' peaks (r ≈ 0.1 mm) cap the pen near 7 mm/s
+against a 50 mm/s feed, and the Hilbert maze turns every 0.6 mm. A tone needs
+a fixed length of line per area, so changing wave spacing or period barely
+moves the time (32–34 min on the beard portrait across the settings tried).
+
+What does help:
+
+- **Draw less.** `--subject-focus` (default 0.8, every engine but
+  illustration, which has its own) lightens the backdrop using depth. Hilbert
+  also leaves paper wherever the tone wants less than half of what its
+  coarsest cell lays down; before, a pale wall became a full-page maze darker
+  than the photo. Hilbert fades the backdrop fully, because a partial fade
+  lands on that cutoff and comes out as a maze full of holes. Beard portrait:
+  Hilbert 44 → 34 min, Waves 37 → 32 min; dog: Hilbert 1h 17m → 33 min.
+- **Round the corners.** `--hilbert-smooth` now defaults to 0.5.
+- **The machine.** These two gain the most from higher GRBL acceleration:
+  at 1600 mm/s² and 0.1 mm junction deviation Hilbert drops from 35 to 13 min
+  and Waves from 32 to 15 (illustration: 13 → 7.5). See `docs/hardware.md`.
+- **The time limit** lightens the whole picture for these engines (it
+  re-runs the engine on less ink until the plot fits) instead of dropping
+  strokes, which for a Hilbert curve or a serpentine cuts holes.
+
 ## Crossing layers
 
 Strokes of one direction sit side by side, so their coverage adds. A second

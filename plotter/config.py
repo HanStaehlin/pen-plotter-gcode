@@ -158,7 +158,7 @@ class RenderConfig:
     #: Round the curve's right angles. 0 keeps the hard maze look; ~0.35
     #: turns every corner into a short arc, which plots markedly faster
     #: because a plotter has to slow almost to a stop for a square corner.
-    hilbert_smooth: float = 0.35
+    hilbert_smooth: float = 0.5
     #: Extra subdivision levels where fine detail lives, so an eye is not
     #: drawn at the same pitch as the flat cheek beside it.
     hilbert_detail: float = 1.2
@@ -205,6 +205,9 @@ class RenderConfig:
     illustration_light_deg: float = 135.0   # light comes from here; 135 = upper left
     #: Each hatch stroke starts up to this fraction in from its lit end.
     illustration_fade: float = 0.5
+    #: Every engine but illustration (which has its own): fade tone on the
+    #: backdrop using depth.  0 = whole frame alike, 1 = subject only.
+    subject_focus: float = 0.8
     # region-adaptive
     region_segments: int = 400     # approximate SLIC superpixel count
     #: How much local texture energy it takes for a region to be routed to

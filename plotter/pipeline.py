@@ -105,19 +105,24 @@ def convert(img_rgb: np.ndarray, cfg: Config, progress=None) -> Result:
             form = depth_mod.form_orientation(depth_map,
                                               sigma=max(1.0, cfg.render.form_smooth))
 
-    note(f"drawing ({cfg.render.engine})")
-    engine = engines.get(cfg.render.engine)
-    produced = engine(value, coverage, canvas, cfg.pen, cfg.render,
-                      features=features, form=form, image_rgb=view_rgb)
-    if not isinstance(produced, tuple):
-        produced = (produced, None)
-    px_paths = produced[0]
-    # Engines that rank their own strokes return the scores as well; only
-    # those are pruned, since for the rest a low score just means "light
-    # tone", which is still wanted.
-    ranked = len(produced) > 2
-    scores = list(produced[2]) if ranked else budget.default_scores(px_paths, coverage)
+    focus = float(np.clip(cfg.render.subject_focus, 0.0, 1.0))
+    if cfg.render.engine == "hilbert":
+        # The curve's coarsest cell has a minimum ink it cannot go below, so
+        # a backdrop faded only part of the way lands right on the blank
+        # cutoff and comes out as a maze full of holes.  Fading it the
+        # whole way leaves a clean vignette instead.
+        focus = min(1.0, 1.25 * focus)
+    if focus > 0 and cfg.render.engine != "illustration":
+        # The same fade illustration applies to its shading, for every
+        # other engine: depth says what is subject and what is backdrop,
+        # and the backdrop gets lighter tone instead of full-density fill.
+        if depth_map is None and depth_mod.available():
+            depth_map = depth_mod.estimate(view_rgb, size=(w_px, h_px),
+                                           model=cfg.render.depth_model)
+        if depth_map is not None:
+            coverage = coverage * _subject_weight(depth_map, focus)
 
+    overlay, overlay_scores = [], []
     if cfg.render.outline and cfg.render.engine not in ("outline", "lineart", "illustration"):
         note("tracing outlines")
         overlay, strengths = engines.outline.generate(
@@ -125,20 +130,59 @@ def convert(img_rgb: np.ndarray, cfg: Config, progress=None) -> Result:
             strength=cfg.render.outline_strength,
             features=features, feature_min=cfg.render.outline_feature_min,
             form=form, image_rgb=view_rgb, with_strength=True)
-        px_paths = list(px_paths) + list(overlay)
-        scores += [budget.line_score(st, P.path_length(p) / canvas.px_per_mm)
-                   for p, st in zip(overlay, strengths)]
+        overlay_scores = [budget.line_score(st, P.path_length(p) / canvas.px_per_mm)
+                          for p, st in zip(overlay, strengths)]
 
-    keep = [i for i, p in enumerate(px_paths) if len(p) >= 2]
-    mm_paths = canvas.paths_to_mm(px_paths)
-    scores = [scores[i] for i in keep]
+    engine = engines.get(cfg.render.engine)
+
+    def draw(ink: float = 1.0):
+        """Run the engine at ``ink`` x the tone target; (mm paths, scores, ranked)."""
+        target = coverage
+        if ink != 1.0:
+            target = np.clip(coverage * ink, 0.0, cfg.pen.max_coverage)
+            target[target < cfg.pen.min_coverage] = 0.0
+        produced = engine(value, target, canvas, cfg.pen, cfg.render,
+                          features=features, form=form, image_rgb=view_rgb)
+        if not isinstance(produced, tuple):
+            produced = (produced, None)
+        px_paths = list(produced[0])
+        # Engines that rank their own strokes return the scores as well;
+        # only those are pruned, since for the rest a low score just means
+        # "light tone", which is still wanted.
+        ranked = len(produced) > 2
+        scores = (list(produced[2]) if ranked
+                  else budget.default_scores(px_paths, target))
+        px_paths += overlay
+        scores += overlay_scores
+        scores = [sc for sc, p in zip(scores, px_paths) if len(p) >= 2]
+        return canvas.paths_to_mm(px_paths), scores, ranked
+
+    def finish(ps):
+        return _optimise(ps, cfg, note, _drawn_sampler(ps, canvas, cfg))
+
+    note(f"drawing ({cfg.render.engine})")
+    mm_paths, scores, ranked = draw()
     raw_count = len(mm_paths)
     raw_travel = P.travel_length(mm_paths)   # unordered, unwelded
-    mm_paths, cut = budget.select(
-        mm_paths, scores, cfg,
-        finish=lambda ps: _optimise(ps, cfg, note, _drawn_sampler(ps, canvas, cfg)),
-        minutes=cfg.paths.time_limit_min,
-        prune_below=cfg.paths.prune_below if ranked else 0.0, note=note)
+    if ranked or cfg.paths.time_limit_min <= 0:
+        mm_paths, cut = budget.select(
+            mm_paths, scores, cfg, finish=finish,
+            minutes=cfg.paths.time_limit_min,
+            prune_below=cfg.paths.prune_below if ranked else 0.0, note=note)
+    else:
+        # An engine that doesn't rank its strokes draws the picture as a
+        # few long ones - a Hilbert curve, a serpentine - and dropping any
+        # of them cuts a hole in it.  Lighten the whole picture instead.
+        fitted, cut = budget.lighten(lambda ink: draw(ink)[0], mm_paths, cfg,
+                                     finish, cfg.paths.time_limit_min, note)
+        if fitted is None:
+            # Even the outline overlay alone runs over: draw no tone and
+            # keep the strongest outline strokes that fit.
+            bare, bare_scores, _ = draw(0.0)
+            fitted, cut = budget.select(bare, bare_scores, cfg, finish=finish,
+                                        minutes=cfg.paths.time_limit_min,
+                                        note=note)
+        mm_paths = fitted
 
     note("estimating")
     stats = gcode.estimate_time(mm_paths, cfg)
@@ -266,6 +310,13 @@ def draw_procedural(kind: str, seed: int | None = None, cfg: Config | None = Non
     blank = np.ones((2, 2), np.float32)
     return Result(paths=mm_paths, canvas=canvas, config=cfg,
                   value=blank, coverage=1.0 - blank, stats=stats)
+
+
+def _subject_weight(depth_map: np.ndarray, focus: float) -> np.ndarray:
+    """1 on the subject, falling to 1 - focus on the backdrop, from depth."""
+    near = np.clip((depth_map - 0.25) / 0.45, 0.0, 1.0)
+    near = near * near * (3.0 - 2.0 * near)            # smoothstep
+    return ((1.0 - focus) + focus * near).astype(np.float32)
 
 
 def _drawn_sampler(mm_paths, canvas: Canvas, cfg: Config):
