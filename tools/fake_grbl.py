@@ -114,6 +114,10 @@ class FakeGrbl:
             return ["[0.9i.20150620:]", "ok"]
         if up == "$X":
             return ["[Caution: Unlocked]", "ok"]
+        m = re.match(r"^\$(\d+)=(-?[\d.]+)$", up)
+        if m:
+            SETTINGS[int(m.group(1))] = float(m.group(2))
+            return ["ok"]
         if up.startswith("$"):
             return ["error: Invalid statement"]
         if "G91" in up:

@@ -16,7 +16,7 @@ from flask import Flask, jsonify, render_template_string, request, send_file
 import numpy as np
 
 import plotter
-from plotter import Config, ENGINES, PAPER_SIZES, grbl
+from plotter import Config, ENGINES, PAPER_SIZES, grbl, speedtest
 from plotter.gcode import encode_png, format_duration
 
 app = Flask(__name__)
@@ -268,7 +268,8 @@ def machine_ports():
 def machine_connect():
     def go():
         info = _machine.connect(request.form["port"], int(request.form.get("baud", 115200)))
-        grbl.save_profile(info)
+        # Keep what the speed test measured; the firmware cannot report it.
+        grbl.save_profile({**(grbl.load_profile() or {}), **info})
         _machine.command(Config().machine.pen_up_cmd)
         return {"info": info}
     return _machine_call(go)
@@ -285,7 +286,32 @@ def machine_status():
     st["info"] = _machine.info() if _machine.connected else None
     st["marker"] = _on_preview(st["x"], st["y"]) if _machine.connected else None
     st["origin_corner"] = _origin_corner()
+    job = st.get("job")
+    if job and job["name"] == "speed test" and job.get("results"):
+        st["speedtest"] = speedtest.summarise(job["results"])
     return jsonify(st)
+
+
+@app.route("/machine/speedtest", methods=["POST"])
+def machine_speedtest():
+    """Draw the speed test sheet: five blocks, each faster than the last."""
+    return _machine_call(lambda: _machine.run_test(speedtest.build(Config())))
+
+
+@app.route("/machine/apply_speed", methods=["POST"])
+def machine_apply_speed():
+    """Keep the chosen speed in the firmware, and the measured lift cost."""
+    def go():
+        _machine.apply_speed(_f("accel", 600), _f("junction_deviation", 0.01))
+        profile = {**(grbl.load_profile() or {}), **_machine.info()}
+        job = _machine.job
+        if job and job.get("results"):
+            overhead = speedtest.summarise(job["results"])["lift_overhead_s"]
+            if overhead is not None:
+                profile["lift_overhead_s"] = round(max(0.0, overhead), 3)
+        grbl.save_profile(profile)
+        return {"info": _machine.info()}
+    return _machine_call(go)
 
 
 def _origin_corner() -> str:
@@ -716,6 +742,21 @@ HTML = r"""
   .metrics dd .unit{font-size:10px;color:var(--ink-3);margin-left:2px}
   .delta{font-size:10px;color:var(--ink-3);font-family:var(--mono);margin-top:2px}
 
+  /* ── camera ──────────────────────────────────────────────── */
+  .cam{position:fixed;inset:0;z-index:50;background:rgba(0,0,0,.55);
+       display:flex;align-items:center;justify-content:center;padding:24px}
+  .cam[hidden]{display:none}
+  .cam-box{background:var(--panel);border-radius:var(--r);padding:14px;
+           display:flex;flex-direction:column;gap:12px;max-width:min(980px,100%);
+           box-shadow:var(--sheet-shadow)}
+  .cam-view{position:relative;line-height:0;background:#000;border-radius:4px;overflow:hidden}
+  .cam video{max-width:100%;max-height:70vh;transform:scaleX(-1)}
+  .cam-count{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+             font:600 96px var(--mono);color:#fff;text-shadow:0 2px 14px rgba(0,0,0,.6);
+             pointer-events:none}
+  .cam-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .cam-bar select{width:auto;max-width:280px}
+
   /* ── sidebar guidance ──────────────────────────────────────── */
   .subhead{font-size:10px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;
            color:var(--ink-3);margin:16px 0 10px;padding-top:13px;border-top:1px dashed var(--rule)}
@@ -813,6 +854,7 @@ HTML = r"""
           <div class="fname" id="fname"></div>
           <input type="file" id="file" accept="image/*">
         </div>
+        <button class="btn ghost" id="camBtn" style="margin-top:8px">Take a photo</button>
         <div class="or">or draw one from scratch</div>
         <div class="pair">
           <select id="subject"><option value="frog" selected>Frog (any family)</option><option value="truefrog">True frog</option><option value="toad">Toad</option><option value="treefrog">Tree frog</option><option value="dartfrog">Poison dart frog</option><option value="hornedfrog">Horned frog</option><option value="clawedfrog">Clawed frog</option></select>
@@ -1251,6 +1293,7 @@ HTML = r"""
         </div>
         <div class="mgroup">
           <button class="mbtn" id="mframe" title="Moves around the drawing's outline with the pen up, so you can check it lands on the paper">Trace outline</button>
+          <button class="mbtn" id="mspeed" title="Draws five test blocks along the top of a landscape sheet, each faster than the last, to find how fast this machine can safely go">Speed test</button>
           <button class="mbtn" id="munlock" style="display:none">Unlock alarm</button>
         </div>
         <span class="spacer"></span>
@@ -1264,8 +1307,28 @@ HTML = r"""
           <div class="mnote" id="mnote">Jog the pen to the paper's top-left corner, then Set origin.</div>
         </div>
       </div>
+      <div class="mrow" id="mtest" style="display:none;gap:6px">
+        <span class="minfo" style="flex-basis:100%;margin-bottom:2px">Speed test done. In each block the second square should land exactly on the first; where it doesn't, the motors skipped. Keep the fastest clean one:</span>
+        <span id="mtestLevels" class="mrow" style="gap:6px"></span>
+      </div>
     </div>
   </main>
+</div>
+
+<div class="cam" id="cam" hidden>
+  <div class="cam-box" role="dialog" aria-label="Take a photo">
+    <div class="cam-view">
+      <video id="camVideo" autoplay playsinline muted></video>
+      <div class="cam-count" id="camCount"></div>
+    </div>
+    <div class="cam-bar">
+      <select id="camSelect" aria-label="Camera"></select>
+      <span class="spacer"></span>
+      <button class="mbtn" id="camCancel">Cancel</button>
+      <button class="mbtn" id="camTimer">3 s timer</button>
+      <button class="mbtn solid" id="camShoot">Take photo</button>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -1476,6 +1539,74 @@ window.addEventListener('resize', fitPreview);
 
 $('dl').addEventListener('click', () => { window.location.href = '/download'; });
 
+/* ── camera: a photo taken here is used exactly like an uploaded one ── */
+let camStream = null, camTimer = null;
+function camStop() {
+  clearInterval(camTimer); camTimer = null; $('camCount').textContent = '';
+  if (camStream) camStream.getTracks().forEach(t => t.stop());
+  camStream = null;
+}
+async function camStart(deviceId) {
+  camStop();
+  const size = {width: {ideal: 1920}, height: {ideal: 1440}};
+  camStream = await navigator.mediaDevices.getUserMedia({
+    audio: false, video: deviceId ? {deviceId: {exact: deviceId}, ...size} : size});
+  $('camVideo').srcObject = camStream;
+  // Labels are only readable once permission has been given.
+  const cams = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
+  const current = camStream.getVideoTracks()[0].getSettings().deviceId;
+  $('camSelect').innerHTML = '';
+  cams.forEach((d, i) => {
+    const o = document.createElement('option');
+    o.value = d.deviceId; o.textContent = d.label || `Camera ${i + 1}`;
+    o.selected = d.deviceId === current;
+    $('camSelect').appendChild(o);
+  });
+  $('camSelect').style.display = cams.length > 1 ? '' : 'none';
+}
+function camClose() { camStop(); $('cam').hidden = true; }
+function camShoot() {
+  const v = $('camVideo');
+  if (!v.videoWidth) return;
+  const c = document.createElement('canvas');
+  c.width = v.videoWidth; c.height = v.videoHeight;
+  c.getContext('2d').drawImage(v, 0, 0);     // the preview is mirrored, the photo is not
+  c.toBlob(b => {
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+    setFile(new File([b], `photo-${stamp}.jpg`, {type: 'image/jpeg'}));
+    camClose();
+  }, 'image/jpeg', 0.92);
+}
+$('camBtn').addEventListener('click', async () => {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    $('msg').textContent = 'This browser cannot use the camera here.';
+    $('msg').className = 'note bad'; return;
+  }
+  $('cam').hidden = false;
+  try { await camStart(); }
+  catch (err) {
+    camClose();
+    $('msg').textContent = 'Camera not available: ' + (err.name === 'NotAllowedError'
+      ? 'allow camera access for this page in the browser' : err.message);
+    $('msg').className = 'note bad';
+  }
+});
+$('camSelect').addEventListener('change', e => camStart(e.target.value).catch(() => {}));
+$('camCancel').addEventListener('click', camClose);
+$('camShoot').addEventListener('click', camShoot);
+$('camTimer').addEventListener('click', () => {
+  if (camTimer) return;
+  let n = 3;
+  $('camCount').textContent = n;
+  camTimer = setInterval(() => {
+    n -= 1;
+    if (n > 0) { $('camCount').textContent = n; return; }
+    clearInterval(camTimer); camTimer = null; $('camCount').textContent = '';
+    camShoot();
+  }, 1000);
+});
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('cam').hidden) camClose(); });
+
 /* ── plotter over USB ── */
 const M = {connected:false, step:10, timer:null, running:false};
 async function mpost(url, data) {
@@ -1533,14 +1664,17 @@ async function mpoll() {
       `${i.accel[0]} mm/s² · max ${i.max_rate[0]} mm/min`;
   }
   $('munlock').style.display = st.state === 'Alarm' ? '' : 'none';
-  ['mstart','morigin','mframe','mpenDown','mpenUp','mhome'].forEach(id => $(id).disabled = running);
+  ['mstart','morigin','mframe','mspeed','mpenDown','mpenUp','mhome'].forEach(id => $(id).disabled = running);
   document.querySelectorAll('[data-jog]').forEach(b => b.disabled = running);
   $('mpause').disabled = !running;
   $('mstop').disabled = !running;
   $('mpause').textContent = job && job.state === 'paused' ? 'Resume' : 'Pause';
   if (job) {
     $('mbar').style.width = (job.fraction * 100).toFixed(1) + '%';
-    const what = job.name === 'outline' ? 'Outline' : 'Plot';
+    const what = job.name === 'outline' ? 'Outline'
+      : job.name === 'speed test' ? 'Speed test' + (job.block ? ` (${job.block})` : '') : 'Plot';
+    if (job.name === 'speed test' && job.state === 'done' && st.speedtest) showSpeedResults(st.speedtest);
+    if (job.name === 'speed test' && job.state === 'running') $('mtestLevels').dataset.shown = '';
     if (job.errors.length) mnote(`${what} held: ${job.errors[job.errors.length-1]}. Resume or Stop.`, true);
     else if (job.state === 'running' || job.state === 'paused')
       mnote(`${what} ${job.state} · ${job.done}/${job.total} lines · ` +
@@ -1596,6 +1730,32 @@ $('morigin').addEventListener('click', async () => {
 $('mhome').addEventListener('click', () => mdo('/machine/home'));
 $('munlock').addEventListener('click', () => mdo('/machine/unlock'));
 $('mframe').addEventListener('click', () => mdo('/machine/frame', {}, 'Tracing the outline, pen up…'));
+$('mspeed').addEventListener('click', async () => {
+  if (!confirm('Speed test: draws five 42 mm blocks along the top of the sheet, each faster than ' +
+               'the last (about 8 minutes).\n\nUse a landscape sheet with the origin set at its ' +
+               'top-left corner. Your speed settings are restored afterwards.')) return;
+  $('mtest').style.display = 'none';
+  mdo('/machine/speedtest', {}, 'Starting the speed test…');
+});
+function showSpeedResults(sum) {
+  const box = $('mtestLevels');
+  if (box.dataset.shown === '1') return;
+  box.innerHTML = '';
+  sum.levels.forEach(lv => {
+    const b = document.createElement('button');
+    b.className = 'mbtn';
+    b.textContent = `${lv.accel} mm/s² · ${lv.junction_deviation} mm — ${fmtS(lv.actual_s)}`;
+    b.title = `estimated ${fmtS(lv.estimate_s)} without the per-lift cost`;
+    b.addEventListener('click', async () => {
+      if (!confirm(`Keep ${lv.accel} mm/s² and ${lv.junction_deviation} mm in the plotter?`)) return;
+      const d = await mdo('/machine/apply_speed', {accel: lv.accel, junction_deviation: lv.junction_deviation});
+      if (d.ok) mnote(`Saved: ${lv.accel} mm/s², ${lv.junction_deviation} mm. Generate again to see the new plot times.`);
+    });
+    box.appendChild(b);
+  });
+  box.dataset.shown = '1';
+  $('mtest').style.display = '';
+}
 $('mpause').addEventListener('click', () =>
   mdo($('mpause').textContent === 'Resume' ? '/machine/resume' : '/machine/pause'));
 $('mstop').addEventListener('click', () => mdo('/machine/stop', {}, 'Stopping…'));

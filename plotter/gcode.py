@@ -92,7 +92,7 @@ def estimate_time(paths, cfg: Config) -> dict:
     travel_s += _move_time(d, v_travel, accel)
 
     lifts = sum(1 for p in paths if len(p) >= 2)
-    dwell_s = lifts * (m.pen_up_dwell + m.pen_down_dwell)
+    dwell_s = lifts * (m.pen_up_dwell + m.pen_down_dwell + m.lift_overhead_s)
     total = draw_s + travel_s + dwell_s
 
     return {

@@ -76,6 +76,11 @@ class MachineConfig:
     pen_down_cmd: str = "M3S1000"
     pen_up_dwell: float = 0.15     # seconds
     pen_down_dwell: float = 0.15
+    #: Time each pen lift costs beyond its two dwells and the moves - the
+    #: firmware stops and restarts around every pen command.  Measured on the
+    #: AX4: a 513-lift plot ran 80 s past an estimate without it.  The speed
+    #: test re-measures it into machine.json.
+    lift_overhead_s: float = 0.15
     precision: int = 3             # decimals in coordinates
 
 

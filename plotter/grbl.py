@@ -61,6 +61,8 @@ def apply_profile(cfg, profile: dict | None = None):
         cfg.machine.accel_mm_s2 = float(min(accel))
     if profile.get("junction_deviation"):
         cfg.machine.junction_deviation = float(profile["junction_deviation"])
+    if profile.get("lift_overhead_s") is not None:
+        cfg.machine.lift_overhead_s = float(profile["lift_overhead_s"])
     rate = [r for r in (profile.get("max_rate") or []) if r]
     if rate:
         cfg.machine.feed_travel = min(cfg.machine.feed_travel, float(min(rate)))
@@ -322,6 +324,9 @@ class Grbl:
             raise RuntimeError("not connected")
         if self.streaming:
             raise RuntimeError("a plot is running")
+        return self._command(line, timeout)
+
+    def _command(self, line: str, timeout: float = 10.0) -> list[str]:
         data = (clean(line) + "\n").encode()
         waiter = {"done": threading.Event(), "lines": []}
         with self._lock:
@@ -381,6 +386,14 @@ class Grbl:
 
     def _stream(self, lines: list[str]):
         job = self.job
+        self._feed(lines, job)
+        if job["state"] != "stopped":
+            job["state"] = "done"
+            job["finished"] = time.time()
+
+    def _feed(self, lines: list[str], job: dict):
+        """Stream lines into GRBL's buffer and wait until they have run."""
+        target = job["acked"] + len(lines)
         for line in lines:
             data = (line + "\n").encode()
             while True:
@@ -400,14 +413,82 @@ class Grbl:
                 # about something; carrying on draws garbage.  Hold and ask.
                 self.pause()
                 job["state"] = "paused"
-        while job["acked"] < job["total"] and job["state"] != "stopped" \
+        while job["acked"] < target and job["state"] != "stopped" \
                 and self.connected:
-            time.sleep(0.05)
+            time.sleep(0.02)
+        # The last ok means "parsed", not "drawn": wait for the motion too.
+        # A status report may still say Idle from just before; give the
+        # poller one cycle to see the run.
+        time.sleep(STATUS_EVERY_S * 1.2)
         while self.state not in ("Idle", "Disconnected") and job["state"] != "stopped":
-            time.sleep(0.1)
-        if job["state"] != "stopped":
+            time.sleep(0.02)
+
+    def run_test(self, blocks: list[dict]):
+        """Run the speed test sheet in the background (see speedtest.py).
+
+        Each block's acceleration and junction deviation are written to the
+        firmware before it runs, each part is timed on its own, and the
+        original settings go back afterwards whatever happens.
+        """
+        if not self.connected:
+            raise RuntimeError("not connected")
+        if self.streaming:
+            raise RuntimeError("a plot is already running")
+        parts = [(b, p, [c for c in (clean(ln) for ln in p["program"].splitlines()) if c])
+                 for b in blocks for p in b["parts"]]
+        self.job = {"name": "speed test", "total": sum(len(l) for _, _, l in parts),
+                    "sent": 0, "acked": 0, "errors": [], "state": "running",
+                    "started": time.time(), "estimate_s": 0.0, "paused_s": 0.0,
+                    "paused_at": None, "results": [], "block": None}
+        original = {k: self.settings.get(k) for k in (120, 121, 11)}
+        t = threading.Thread(target=self._run_test, args=(parts, original), daemon=True)
+        t.start()
+
+    def _set(self, number: int, value):
+        if value is not None:
+            self._command(f"${number}={value:g}", timeout=5.0)
+            self.settings[number] = float(value)
+
+    def _run_test(self, parts, original):
+        job = self.job
+        current = None
+        try:
+            for block, part, lines in parts:
+                if job["state"] == "stopped" or not self.connected:
+                    return
+                level = (block["accel"], block["junction_deviation"])
+                if level != current:
+                    self._set(120, level[0])
+                    self._set(121, level[0])
+                    self._set(11, level[1])
+                    current = level
+                job["block"] = f"{level[0]} mm/s², {level[1]:g} mm"
+                t0 = time.time()
+                self._feed(lines, job)
+                if job["state"] == "stopped":
+                    return
+                job["results"].append({"accel": level[0], "junction_deviation": level[1],
+                                       "name": part["name"], "lifts": part["lifts"],
+                                       "estimate_s": part["estimate_s"],
+                                       "actual_s": time.time() - t0})
             job["state"] = "done"
             job["finished"] = time.time()
+        except Exception as exc:
+            job["errors"].append(str(exc))
+            job["state"] = "stopped"
+        finally:
+            for number, value in original.items():
+                try:
+                    self._set(number, value)
+                except Exception as exc:
+                    self.last_error = f"could not restore ${number}: {exc}"
+
+    def apply_speed(self, accel: float, junction_deviation: float):
+        """Keep new acceleration and corner settings in the firmware."""
+        self.command(f"$120={accel:g}")
+        self.command(f"$121={accel:g}")
+        self.command(f"$11={junction_deviation:g}")
+        self.read_settings()
 
     def pause(self):
         self.realtime(b"!")
@@ -468,6 +549,7 @@ class Grbl:
             if job["estimate_s"] > 0:
                 remaining = max(0.0, job["estimate_s"] * (1.0 - frac))
             out["job"] = {"name": job["name"], "state": job["state"],
+                          "block": job.get("block"), "results": job.get("results"),
                           "done": job["acked"], "total": job["total"],
                           "fraction": frac, "elapsed_s": elapsed,
                           "remaining_s": remaining, "errors": job["errors"][-3:]}

@@ -43,6 +43,19 @@ corner speed are.
 
 (Measured from a 400 mm/s² baseline; the AX4 actually ships at 600.)
 
+**Finding the limit: the speed test.** *Speed test* in the app's plotter
+panel draws five 42 mm blocks along the top of a landscape sheet at
+600 / 1000 / 1500 / 2000 / 3000 mm/s² (junction deviation 0.01 to 0.10 mm).
+Each block draws a square, works the machine hard (dashes, a tight maze,
+circles, fast pen-up moves), then draws the square again. Skipped steps are
+invisible while plotting but shift everything after them, so where the second
+square no longer lands on the first, the motors skipped: keep the fastest
+clean block. Choosing it writes `$120`/`$121`/`$11` to the firmware and
+`machine.json`; until then the original settings are restored after the test.
+Each part is timed on its own, which also measures the fixed cost per pen
+lift the estimate needs (0.15 s on the AX4, from a 513-lift plot that ran
+80 s past an estimate without it).
+
 Raise `$120/$121` and `$11` only as far as the machine draws cleanly.
 Connecting from the app reads them back into `machine.json`, so plot-time
 estimates follow automatically.
