@@ -25,6 +25,12 @@ python3 image_to_gcode.py photo.jpg --minutes 12   # fit a 12-minute plot
 python3 image_to_gcode.py --list-engines
 ```
 
+## Plotting
+
+The app talks to the plotter over USB directly: connect, jog the pen to the
+paper corner, set the origin, trace the outline, plot, with pause and stop.
+See [docs/hardware.md](docs/hardware.md#plotting-from-the-app).
+
 ## Engines
 
 | Engine         | Look                                                 | Pen lifts         |

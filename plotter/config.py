@@ -67,7 +67,9 @@ class MachineConfig:
 
     feed_draw: float = 3000.0      # mm/min, pen down
     feed_travel: float = 6000.0    # mm/min, pen up
-    accel_mm_s2: float = 400.0     # used by the time estimator only
+    #: Used by the time estimator only.  The AX4 reports 600 ($120/$121);
+    #: connecting from the app reads the real values into machine.json.
+    accel_mm_s2: float = 600.0
     #: GRBL $11. How far the tool may cut a corner; sets corner speed.
     junction_deviation: float = 0.02
     pen_up_cmd: str = "M5"

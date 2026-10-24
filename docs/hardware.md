@@ -2,9 +2,13 @@
 
 ## The AX4 plotter
 
-- GRBL 0.9 firmware, CH340 USB-serial chip, **115200 baud**. macOS drives
-  the CH340 natively; the Windows driver from the vendor bundle is not
-  needed.
+- GRBL 0.9i firmware (2015 build), CH340 USB-serial chip, **115200 baud**,
+  shows up as `/dev/cu.usbserial-110`. macOS drives the CH340 natively; the
+  Windows driver from the vendor bundle is not needed.
+- Bed 300 × 210 mm, 80 steps/mm, max 6000 mm/min, acceleration 600 mm/s².
+  **No homing, no limit switches, no soft limits**: the origin is wherever
+  the pen is when the board starts, and nothing stops it running into the
+  frame.
 - The vendor manual, firmware, drivers and Candle sender are not part of
   this repository; keep them alongside it (locally in
   `~/Documents/AX4 Plotter Resources/`).
@@ -37,8 +41,42 @@ corner speed are.
 | junction deviation 0.02 → 0.10 mm (`$11`) | 1.06× | 1.50× |
 | all of the above + `--simplify 0.20` | 1.35× | 2.50× |
 
-Raise `$120/$121` and `$11` only as far as the machine draws cleanly; set
-the matching `--accel` so plot-time estimates stay honest.
+(Measured from a 400 mm/s² baseline; the AX4 actually ships at 600.)
+
+Raise `$120/$121` and `$11` only as far as the machine draws cleanly.
+Connecting from the app reads them back into `machine.json`, so plot-time
+estimates follow automatically.
+
+## Plotting from the app
+
+The app streams G-code to the plotter itself; UGS is not needed. Quit UGS
+first, since only one program can hold the serial port.
+
+1. **Connect.** Pick the `usbserial` port under *Plotter*, below the preview.
+   Opening the port restarts the Arduino. The app reads the machine's
+   settings, so plot-time estimates use the real acceleration and corner
+   tolerance from then on.
+2. **Set the origin.** Jog the pen to the paper corner the app names and
+   press *Set origin here*. For landscape drawings that is the top-left
+   corner. A portrait drawing goes to the bed turned a quarter, so its origin
+   is the drawing's top-right corner. The red ring on the preview shows
+   where the pen is relative to the drawing.
+3. **Trace outline.** The pen goes round the drawing's bounding box, pen up.
+   If that leaves the paper, move the paper or the origin.
+4. **Plot.** Pause holds the motion and can be resumed. Stop decelerates,
+   resets GRBL's queue and lifts the pen, without losing position. A line
+   GRBL rejects pauses the plot rather than drawing on blindly. A drawing
+   that would run past the bed from the origin asks for confirmation first.
+
+Streaming counts characters to keep GRBL's 127-byte receive buffer full
+instead of waiting for each `ok`; on photo-derived paths, thousands of short
+segments, send-and-wait lets the planner run dry and the pen stutters.
+GRBL 0.9 has no `$J=` jog command, so jogging is `G91 G0` then `G90`, and
+the origin is a `G92` offset (it does not survive a power cycle).
+
+`tools/fake_grbl.py` is a pretend GRBL 0.9i on a pseudo-terminal for testing
+all of this without the machine. It fails loudly if a sender overflows the
+receive buffer.
 
 ## Portrait plots
 

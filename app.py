@@ -13,14 +13,17 @@ import traceback
 
 from flask import Flask, jsonify, render_template_string, request, send_file
 
+import numpy as np
+
 import plotter
-from plotter import Config, ENGINES, PAPER_SIZES
+from plotter import Config, ENGINES, PAPER_SIZES, grbl
 from plotter.gcode import encode_png, format_duration
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 60 * 1024 * 1024
 
 _last: dict = {}
+_machine = grbl.Grbl()
 
 
 def _f(name, default):
@@ -100,7 +103,9 @@ def config_from_form() -> Config:
     cfg.paths.bridge_max_mm = _f("bridge", 3.0)
     cfg.paths.bridge_min_ink = _f("bridge_min_ink", 0.30)
     cfg.paths.time_limit_min = _f("time_limit", 0.0)
-    return cfg
+    # Estimates use the plotter's own acceleration and corner tolerance once
+    # it has been connected and read (machine.json).
+    return grbl.apply_profile(cfg)
 
 
 @app.route("/")
@@ -161,7 +166,8 @@ def procedural():
 def _respond(result, filename, header, **extra):
     global _last
     preview = result.preview(dpi=150, show_travel=_b("show_travel"))
-    _last = {"gcode": result.gcode(header), "name": filename}
+    _last = {"gcode": result.gcode(header), "name": filename,
+             "estimate_s": result.stats["total_s"], **_placement(result)}
     s = result.stats
     return jsonify(
         preview=base64.b64encode(encode_png(preview)).decode(),
@@ -190,6 +196,193 @@ def _respond(result, filename, header, **extra):
         },
         **extra,
     )
+
+
+def _placement(result) -> dict:
+    """How machine coordinates map back onto the preview, and the plot's extent.
+
+    The preview shows the page as composed; a portrait page goes down the
+    wire turned 90 degrees.  The live pen marker needs the inverse of that.
+    """
+    page = result.config.page
+    mode = (page.rotate_output or "auto").lower()
+    if mode == "off" or (mode == "auto" and page.height_mm <= page.width_mm):
+        turn = None
+    else:
+        turn = "cw" if mode == "cw" else "ccw"
+    out, _ = result.output_paths()
+    pts = np.vstack(out) if out else np.zeros((1, 2))
+    return {"page_w": page.width_mm, "page_h": page.height_mm, "turn": turn,
+            "negative_y": page.negative_y,
+            "bbox": [float(pts[:, 0].min()), float(pts[:, 0].max()),
+                     float(pts[:, 1].min()), float(pts[:, 1].max())]}
+
+
+def _on_preview(x: float, y: float) -> tuple[float, float] | None:
+    """Machine X/Y -> fraction across and down the preview image."""
+    if not _last:
+        return None
+    w, h = _last["page_w"], _last["page_h"]
+    if _last["turn"] == "ccw":
+        u, v = w + y, x
+    elif _last["turn"] == "cw":
+        u, v = -y, h - x
+    else:
+        u, v = x, (-y if _last["negative_y"] else y)
+    return u / w, v / h
+
+
+# ── plotter over USB ─────────────────────────────────────────────────────
+
+def _machine_call(fn):
+    try:
+        out = fn()
+        return jsonify(ok=True, **(out or {}))
+    except Exception as exc:
+        return jsonify(ok=False, error=f"{exc}")
+
+
+@app.route("/machine/ports")
+def machine_ports():
+    return jsonify(ports=grbl.ports(), connected=_machine.port if _machine.connected else None)
+
+
+@app.route("/machine/connect", methods=["POST"])
+def machine_connect():
+    def go():
+        info = _machine.connect(request.form["port"], int(request.form.get("baud", 115200)))
+        grbl.save_profile(info)
+        _machine.command(Config().machine.pen_up_cmd)
+        return {"info": info}
+    return _machine_call(go)
+
+
+@app.route("/machine/disconnect", methods=["POST"])
+def machine_disconnect():
+    return _machine_call(_machine.disconnect)
+
+
+@app.route("/machine/status")
+def machine_status():
+    st = _machine.progress()
+    st["info"] = _machine.info() if _machine.connected else None
+    st["marker"] = _on_preview(st["x"], st["y"]) if _machine.connected else None
+    st["origin_corner"] = _origin_corner()
+    return jsonify(st)
+
+
+def _origin_corner() -> str:
+    """Which corner of the drawing X0 Y0 is, as the paper lies on the bed.
+
+    Unturned, it is the top-left.  A portrait page goes to the landscape bed
+    turned a quarter, and the bed's origin corner is then a different corner
+    of the drawing - set the origin at the top-left and the plot runs off
+    the paper.
+    """
+    turn = _last.get("turn") if _last else None
+    return {"ccw": "top-right", "cw": "bottom-left"}.get(turn, "top-left")
+
+
+@app.route("/machine/jog", methods=["POST"])
+def machine_jog():
+    """Move the pen in the drawing's own directions (u right, v down).
+
+    A portrait page goes down the wire turned 90 degrees, so "up" on the
+    preview is a different machine axis; the arrows follow the preview.
+    """
+    du, dv = _f("du", 0), _f("dv", 0)
+    turn = _last.get("turn") if _last else None
+    neg = _last.get("negative_y", True) if _last else Config().page.negative_y
+    if turn == "ccw":
+        dx, dy = dv, du
+    elif turn == "cw":
+        dx, dy = -dv, -du
+    else:
+        dx, dy = du, (-dv if neg else dv)
+    return _machine_call(lambda: _machine.jog(dx, dy))
+
+
+@app.route("/machine/pen", methods=["POST"])
+def machine_pen():
+    m = Config().machine
+    cmd = m.pen_down_cmd if request.form.get("down") == "1" else m.pen_up_cmd
+    return _machine_call(lambda: _machine.command(cmd) and None)
+
+
+@app.route("/machine/origin", methods=["POST"])
+def machine_origin():
+    return _machine_call(_machine.set_origin)
+
+
+@app.route("/machine/home", methods=["POST"])
+def machine_home():
+    return _machine_call(lambda: _machine.go_origin(Config().machine.pen_up_cmd))
+
+
+@app.route("/machine/unlock", methods=["POST"])
+def machine_unlock():
+    return _machine_call(_machine.unlock)
+
+
+@app.route("/machine/frame", methods=["POST"])
+def machine_frame():
+    """Trace the drawing's outline with the pen up, to check it lands on the paper."""
+    if not _last:
+        return jsonify(ok=False, error="Generate a drawing first")
+    x0, x1, y0, y1 = _last["bbox"]
+    m = Config().machine
+    prog = "\n".join([m.pen_up_cmd, "G90",
+                      f"G0 X{x0:.2f} Y{y1:.2f}", f"G0 X{x1:.2f} Y{y1:.2f}",
+                      f"G0 X{x1:.2f} Y{y0:.2f}", f"G0 X{x0:.2f} Y{y0:.2f}",
+                      f"G0 X{x0:.2f} Y{y1:.2f}", "G0 X0 Y0"])
+    return _machine_call(lambda: _machine.start(prog, "outline"))
+
+
+@app.route("/machine/start", methods=["POST"])
+def machine_start():
+    if not _last:
+        return jsonify(ok=False, error="Generate a drawing first")
+    problem = _off_bed(_last["gcode"])
+    if problem and request.form.get("force") != "1":
+        return jsonify(ok=False, confirm=problem)
+    return _machine_call(lambda: _machine.start(_last["gcode"], _last["name"],
+                                                _last["estimate_s"]))
+
+
+def _off_bed(program: str) -> str | None:
+    """Would this program drive the pen past the bed, measured from the origin?
+
+    The AX4 has no limit switches and no soft limits: nothing stops it from
+    running into the frame, so the check has to happen here.
+    """
+    ext = grbl.extents(program.splitlines())
+    travel = _machine.info()["travel"] if _machine.connected else [None, None]
+    if ext is None or not all(travel):
+        return None
+    x0, x1, y0, y1 = ext
+    tx, ty = travel
+    ylo, yhi = (-ty, 0.0) if Config().page.negative_y else (0.0, ty)
+    if x0 < -0.5 or x1 > tx + 0.5 or y0 < ylo - 0.5 or y1 > yhi + 0.5:
+        return (f"The drawing spans X {x0:.0f}..{x1:.0f}, Y {y0:.0f}..{y1:.0f} mm "
+                f"from the origin, but the bed is {tx:.0f} x {ty:.0f} mm. "
+                f"Is the origin set at the paper's {_origin_corner()} corner, "
+                "as the drawing appears in the preview?")
+    return None
+
+
+@app.route("/machine/pause", methods=["POST"])
+def machine_pause():
+    return _machine_call(_machine.pause)
+
+
+@app.route("/machine/resume", methods=["POST"])
+def machine_resume():
+    return _machine_call(_machine.resume)
+
+
+@app.route("/machine/stop", methods=["POST"])
+def machine_stop():
+    return _machine_call(lambda: _machine.stop(Config().machine.pen_up_cmd))
 
 
 @app.route("/download")
@@ -511,6 +704,47 @@ HTML = r"""
   .metrics dd{font-family:var(--mono);font-size:14px;font-weight:500}
   .metrics dd .unit{font-size:10px;color:var(--ink-3);margin-left:2px}
   .delta{font-size:10px;color:var(--ink-3);font-family:var(--mono);margin-top:2px}
+
+  /* ── plotter ───────────────────────────────────────────────── */
+  .machine{border-top:1px solid var(--rule);background:var(--panel);flex:none;
+           padding:12px 20px 14px;display:flex;flex-direction:column;gap:10px}
+  .mrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .mlabel{font-size:10px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;
+          color:var(--ink-3);margin-right:4px}
+  .machine select{width:auto;min-width:190px}
+  .mbtn{font-family:var(--sans);font-size:12px;font-weight:600;padding:7px 11px;
+        border-radius:5px;cursor:pointer;border:1px solid var(--rule-2);
+        background:transparent;color:var(--ink);white-space:nowrap}
+  .mbtn:hover:not(:disabled){border-color:var(--ink)}
+  .mbtn:disabled{opacity:.3;cursor:not-allowed}
+  .mbtn.solid{background:var(--ink);color:var(--panel);border-color:var(--ink)}
+  .mbtn.solid:hover:not(:disabled){opacity:.84}
+  .mstate{font-family:var(--mono);font-size:11px;color:var(--ink-2);
+          display:flex;align-items:center;gap:6px}
+  .mstate .dot{width:7px;height:7px;border-radius:50%;border:1.5px solid var(--ink-3)}
+  .mstate.on .dot{background:var(--ink);border-color:var(--ink)}
+  .mstate.busy .dot{animation:blink 1s steps(2) infinite}
+  @keyframes blink{50%{opacity:.2}}
+  .minfo{font-family:var(--mono);font-size:10px;color:var(--ink-3)}
+  .jog{display:grid;grid-template-columns:repeat(3,30px);grid-template-rows:repeat(3,30px);gap:3px}
+  .jog .mbtn{padding:0;font-size:13px}
+  .seg{display:inline-flex;border:1px solid var(--rule-2);border-radius:5px;overflow:hidden}
+  .seg button{flex:1;font-family:var(--mono);font-size:11px;padding:6px 9px;border:none;
+              background:transparent;color:var(--ink-2);cursor:pointer}
+  .seg button.on{background:var(--ink);color:var(--panel)}
+  .mgroup{display:flex;flex-direction:column;gap:6px}
+  .spacer{flex:1}
+  .mprog{height:3px;background:var(--rule);border-radius:2px;overflow:hidden}
+  .mprog > i{display:block;height:100%;width:0;background:var(--ink);transition:width .3s}
+  .mnote{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);min-height:1.3em}
+  .mnote.bad{color:var(--ink)}
+  .mnote.bad::before{content:"⚠ "}
+  .sheet{position:relative}
+  .pen-marker{position:absolute;width:13px;height:13px;margin:-6.5px 0 0 -6.5px;
+              border:2px solid #d0021b;border-radius:50%;pointer-events:none;display:none;
+              box-shadow:0 0 0 2px rgba(255,255,255,.8)}
+  .pen-marker::after{content:"";position:absolute;left:50%;top:50%;width:3px;height:3px;
+              margin:-1.5px 0 0 -1.5px;background:#d0021b;border-radius:50%}
 
   @media (max-width:940px){
     .shell{grid-template-columns:1fr}
@@ -930,6 +1164,49 @@ HTML = r"""
         <div><dt>G-code</dt><dd id="mFile">—</dd><div class="delta" id="dPoints"></div></div>
       </dl>
     </div>
+
+    <div class="machine" id="machine">
+      <div class="mrow">
+        <span class="mlabel">Plotter</span>
+        <select id="mport" aria-label="Serial port"><option value="">no port found</option></select>
+        <button class="mbtn" id="mrefresh" title="Look for ports again">↻</button>
+        <button class="mbtn solid" id="mconnect">Connect</button>
+        <span class="mstate" id="mstate"><span class="dot"></span><span id="mstateText">not connected</span></span>
+        <span class="spacer"></span>
+        <span class="minfo" id="minfo"></span>
+      </div>
+      <div class="mrow" id="mcontrols" style="display:none;align-items:flex-start;gap:18px">
+        <div class="jog" aria-label="Move the pen">
+          <span></span><button class="mbtn" data-jog="0,-1" title="Toward the top of the drawing">↑</button><span></span>
+          <button class="mbtn" data-jog="-1,0" title="Left">←</button>
+          <button class="mbtn" id="mhome" title="Go to origin (pen up)">⌂</button>
+          <button class="mbtn" data-jog="1,0" title="Right">→</button>
+          <span></span><button class="mbtn" data-jog="0,1" title="Toward the bottom of the drawing">↓</button><span></span>
+        </div>
+        <div class="mgroup">
+          <div class="seg" id="mstep"><button data-step="1">1</button><button data-step="10" class="on">10</button><button data-step="50">50 mm</button></div>
+          <div class="mrow" style="gap:6px">
+            <button class="mbtn" id="mpenDown">Pen down</button>
+            <button class="mbtn" id="mpenUp">Pen up</button>
+          </div>
+          <button class="mbtn" id="morigin" title="Put the pen on the paper's top-left corner first">Set origin here</button>
+        </div>
+        <div class="mgroup">
+          <button class="mbtn" id="mframe" title="Moves around the drawing's outline with the pen up, so you can check it lands on the paper">Trace outline</button>
+          <button class="mbtn" id="munlock" style="display:none">Unlock alarm</button>
+        </div>
+        <span class="spacer"></span>
+        <div class="mgroup" style="min-width:230px">
+          <div class="mrow" style="gap:6px;justify-content:flex-end">
+            <button class="mbtn solid" id="mstart">Plot</button>
+            <button class="mbtn" id="mpause" disabled>Pause</button>
+            <button class="mbtn" id="mstop" disabled>Stop</button>
+          </div>
+          <div class="mprog"><i id="mbar"></i></div>
+          <div class="mnote" id="mnote">Jog the pen to the paper's top-left corner, then Set origin.</div>
+        </div>
+      </div>
+    </div>
   </main>
 </div>
 
@@ -1093,7 +1370,8 @@ function show(data, label) {
   const wrap = $('sheetwrap');
   wrap.innerHTML =
     '<div class="sheet"><img alt="plot preview" src="data:image/png;base64,' +
-    data.preview + '"></div><div class="caption">' + s.size + '</div>';
+    data.preview + '"><div class="pen-marker" id="penMarker"></div></div>' +
+    '<div class="caption">' + s.size + '</div>';
 
   $('bigTime').textContent = s.time;
   $('engCap').textContent = (label || engineValue()) +
@@ -1116,6 +1394,142 @@ function show(data, label) {
 }
 
 $('dl').addEventListener('click', () => { window.location.href = '/download'; });
+
+/* ── plotter over USB ── */
+const M = {connected:false, step:10, timer:null, running:false};
+async function mpost(url, data) {
+  const form = new FormData();
+  Object.entries(data || {}).forEach(([k, v]) => form.append(k, v));
+  const res = await fetch(url, {method:'POST', body:form});
+  return res.json();
+}
+function mnote(text, bad) {
+  $('mnote').textContent = text || '';
+  $('mnote').className = 'mnote' + (bad ? ' bad' : '');
+}
+async function mports() {
+  const d = await (await fetch('/machine/ports')).json();
+  const sel = $('mport');
+  sel.innerHTML = d.ports.length ? '' : '<option value="">no port found</option>';
+  d.ports.forEach(p => {
+    const o = document.createElement('option');
+    o.value = p; o.textContent = p.replace('/dev/', '');
+    if (/usbserial|usbmodem|wchusb|SLAB/.test(p)) o.selected = true;
+    sel.appendChild(o);
+  });
+  if (d.connected) { sel.value = d.connected; setConnected(true); }
+}
+function setConnected(on) {
+  M.connected = on;
+  $('mcontrols').style.display = on ? '' : 'none';
+  $('mconnect').textContent = on ? 'Disconnect' : 'Connect';
+  $('mconnect').classList.toggle('solid', !on);
+  $('mport').disabled = on;
+  clearInterval(M.timer);
+  if (on) { M.timer = setInterval(mpoll, 400); mpoll(); }
+  else {
+    $('mstateText').textContent = 'not connected';
+    $('mstate').className = 'mstate';
+    $('minfo').textContent = '';
+    const mk = $('penMarker'); if (mk) mk.style.display = 'none';
+  }
+}
+const fmtS = s => s == null ? '—' : (s >= 3600 ? Math.floor(s/3600) + 'h ' : '') +
+  Math.floor(s % 3600 / 60) + 'm ' + String(Math.floor(s % 60)).padStart(2, '0') + 's';
+async function mpoll() {
+  let st;
+  try { st = await (await fetch('/machine/status')).json(); } catch (e) { return; }
+  if (!st.connected) { setConnected(false); mnote(st.error || 'Connection lost', true); return; }
+  $('mstateText').textContent = `${st.state} · X ${st.x.toFixed(1)}  Y ${st.y.toFixed(1)}`;
+  const job = st.job, running = job && (job.state === 'running' || job.state === 'paused');
+  M.running = running;
+  M.corner = st.origin_corner;
+  $('morigin').title = `Put the pen on the paper's ${st.origin_corner} corner (as the drawing shows in the preview) first`;
+  $('mstate').className = 'mstate on' + (st.state === 'Run' ? ' busy' : '');
+  if (st.info) {
+    const i = st.info;
+    $('minfo').textContent = `${i.version} · bed ${i.travel[0]}×${i.travel[1]} mm · ` +
+      `${i.accel[0]} mm/s² · max ${i.max_rate[0]} mm/min`;
+  }
+  $('munlock').style.display = st.state === 'Alarm' ? '' : 'none';
+  ['mstart','morigin','mframe','mpenDown','mpenUp','mhome'].forEach(id => $(id).disabled = running);
+  document.querySelectorAll('[data-jog]').forEach(b => b.disabled = running);
+  $('mpause').disabled = !running;
+  $('mstop').disabled = !running;
+  $('mpause').textContent = job && job.state === 'paused' ? 'Resume' : 'Pause';
+  if (job) {
+    $('mbar').style.width = (job.fraction * 100).toFixed(1) + '%';
+    const what = job.name === 'outline' ? 'Outline' : 'Plot';
+    if (job.errors.length) mnote(`${what} held: ${job.errors[job.errors.length-1]}. Resume or Stop.`, true);
+    else if (job.state === 'running' || job.state === 'paused')
+      mnote(`${what} ${job.state} · ${job.done}/${job.total} lines · ` +
+            `${fmtS(job.elapsed_s)} elapsed` + (job.remaining_s != null ? ` · about ${fmtS(job.remaining_s)} left` : ''));
+    else if (job.state === 'done') mnote(`${what} finished in ${fmtS(job.elapsed_s)}.`);
+    else if (job.state === 'stopped') mnote(`${what} stopped at line ${job.done} of ${job.total}. Pen lifted.`);
+  }
+  const mk = $('penMarker');
+  if (mk && st.marker) {
+    const [fx, fy] = st.marker;
+    const inside = fx > -0.05 && fx < 1.05 && fy > -0.05 && fy < 1.05;
+    mk.style.display = inside ? 'block' : 'none';
+    mk.style.left = (fx * 100) + '%'; mk.style.top = (fy * 100) + '%';
+  }
+}
+async function mdo(url, data, busyText) {
+  if (busyText) mnote(busyText);
+  const d = await mpost(url, data);
+  if (!d.ok && d.error) mnote(d.error, true);
+  mpoll();
+  return d;
+}
+$('mrefresh').addEventListener('click', mports);
+$('mconnect').addEventListener('click', async () => {
+  if (M.connected) { await mpost('/machine/disconnect'); setConnected(false); mnote(''); return; }
+  const port = $('mport').value;
+  if (!port) { mnote('Plug in the plotter, quit UGS, then ↻', true); return; }
+  $('mconnect').disabled = true;
+  $('mstateText').textContent = 'connecting — the board restarts…';
+  const d = await mpost('/machine/connect', {port});
+  $('mconnect').disabled = false;
+  if (!d.ok) { $('mstateText').textContent = 'not connected';
+               mnote(d.error + ' — is UGS still open?', true); return; }
+  setConnected(true);
+  const st = await (await fetch('/machine/status')).json();
+  mnote('Connected. Plot-time estimates now use this machine\'s settings. ' +
+        `Jog the pen to the paper's ${st.origin_corner} corner (as the drawing shows in the preview), then Set origin.`);
+});
+document.querySelectorAll('#mstep button').forEach(b => b.addEventListener('click', () => {
+  document.querySelectorAll('#mstep button').forEach(x => x.classList.remove('on'));
+  b.classList.add('on'); M.step = +b.dataset.step;
+}));
+document.querySelectorAll('[data-jog]').forEach(b => b.addEventListener('click', () => {
+  const [du, dv] = b.dataset.jog.split(',').map(Number);
+  mdo('/machine/jog', {du: du * M.step, dv: dv * M.step});
+}));
+$('mpenDown').addEventListener('click', () => mdo('/machine/pen', {down: 1}));
+$('mpenUp').addEventListener('click', () => mdo('/machine/pen', {down: 0}));
+$('morigin').addEventListener('click', async () => {
+  const d = await mdo('/machine/origin');
+  if (d.ok) mnote('Origin set. Trace outline to check the drawing lands on the paper.');
+});
+$('mhome').addEventListener('click', () => mdo('/machine/home'));
+$('munlock').addEventListener('click', () => mdo('/machine/unlock'));
+$('mframe').addEventListener('click', () => mdo('/machine/frame', {}, 'Tracing the outline, pen up…'));
+$('mpause').addEventListener('click', () =>
+  mdo($('mpause').textContent === 'Resume' ? '/machine/resume' : '/machine/pause'));
+$('mstop').addEventListener('click', () => mdo('/machine/stop', {}, 'Stopping…'));
+$('mstart').addEventListener('click', async () => {
+  const t = $('bigTime').textContent;
+  if (!confirm(`Plot the current drawing (about ${t})?\n\nThe origin should be set on the paper's ${M.corner || 'top-left'} corner, as the drawing shows in the preview.`)) return;
+  let d = await mpost('/machine/start', {});
+  if (!d.ok && d.confirm) {
+    if (!confirm(d.confirm + '\n\nPlot anyway?')) return;
+    d = await mpost('/machine/start', {force: 1});
+  }
+  if (!d.ok && d.error) mnote(d.error, true);
+  mpoll();
+});
+mports();
 </script>
 </body>
 </html>

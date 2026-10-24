@@ -18,7 +18,7 @@ from pathlib import Path
 
 import cv2
 
-from plotter import Config, ENGINES, PAPER_SIZES, convert, load_image
+from plotter import Config, ENGINES, PAPER_SIZES, convert, grbl, load_image
 from plotter.gcode import format_duration
 
 
@@ -228,7 +228,8 @@ def config_from_args(args) -> Config:
     cfg.paths.prune_below = args.prune
     cfg.paths.simplify_mm = args.simplify
     cfg.paths.sort = not args.no_sort
-    return cfg
+    # The plotter's own limits, if the app has read them over USB.
+    return grbl.apply_profile(cfg)
 
 
 def main(argv=None) -> int:

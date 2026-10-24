@@ -8,3 +8,6 @@ venv/
 eval_out/
 # test photo of unknown licence, kept locally only
 samples/photos/owl.jpg
+
+# per-machine settings read over serial
+machine.json

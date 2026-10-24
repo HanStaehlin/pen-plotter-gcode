@@ -5,6 +5,7 @@ scikit-image>=0.21   # SLIC regions for the adaptive engine
 Flask>=3.0
 shapely>=2.0          # procedural frogs
 Hershey-Fonts>=2.1    # single-stroke lettering for frog names (MIT)
+pyserial>=3.5         # plot straight from the app over USB
 
 # Optional. Depth-driven form and the learned line model (Informative
 # Drawings); both run on Apple Silicon via Metal. Weights download on first
