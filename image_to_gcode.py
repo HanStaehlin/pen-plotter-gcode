@@ -27,6 +27,9 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     p.add_argument("input", nargs="?", help="input image (PNG, JPEG, TIFF, ...)")
     p.add_argument("-o", "--output", help="output .gcode (default: <input>.gcode)")
+    p.add_argument("--draw", metavar="SUBJECT", choices=["frog"],
+                   help="generate a drawing from scratch instead of converting an image")
+    p.add_argument("--seed", type=int, help="with --draw: which variation (default random)")
     p.add_argument("--list-engines", action="store_true",
                    help="describe the available engines and exit")
 
@@ -222,8 +225,25 @@ def main(argv=None) -> int:
             print(f"  {'':<{width}}  pen lifts: {continuity}")
         return 0
 
+    if args.draw:
+        import random
+        from plotter import draw_procedural
+        seed = args.seed if args.seed is not None else random.randrange(1_000_000)
+        cfg = config_from_args(args)
+        result = draw_procedural(args.draw, seed, cfg)
+        out = Path(args.output) if args.output else Path(f"{args.draw}-{seed}.gcode")
+        out.write_text(result.gcode(f"procedural {args.draw}, seed {seed}"))
+        s = result.stats
+        if not args.quiet:
+            print(f"  {args.draw} seed {seed}: {s['image_mm']}, {s['label']}, "
+                  f"{s['pen_lifts']} pen lifts -> {out}")
+        if args.preview is not None:
+            path = str(out.with_suffix("")) + "_preview.png" if args.preview == "auto" else args.preview
+            cv2.imwrite(path, cv2.cvtColor(result.preview(dpi=args.dpi), cv2.COLOR_RGB2BGR))
+        return 0
+
     if not args.input:
-        parser.error("an input image is required")
+        parser.error("an input image is required (or use --draw frog)")
 
     src = Path(args.input)
     if not src.exists():

@@ -119,22 +119,8 @@ def convert(img_rgb: np.ndarray, cfg: Config, progress=None) -> Result:
     mm_paths = canvas.paths_to_mm(px_paths)
     raw_count = len(mm_paths)
     raw_travel = P.travel_length(mm_paths)   # unordered, unwelded
-
-    note("welding strokes")
-    mm_paths = P.merge(mm_paths, cfg.paths.merge_tolerance_mm)
-    mm_paths = P.simplify_all(mm_paths, cfg.paths.simplify_mm)
-    mm_paths = P.drop_short(mm_paths, cfg.paths.min_path_mm)
-
-    if cfg.paths.sort:
-        note("ordering travel")
-        mm_paths = P.sort_paths(mm_paths, refine=cfg.paths.refine_order)
-
-    if cfg.paths.bridge_max_mm > 0:
-        note("bridging gaps")
-        mm_paths = P.bridge(mm_paths, cfg.paths.bridge_max_mm,
-                            _ink_sampler(coverage, canvas),
-                            cfg.paths.bridge_min_ink)
-        mm_paths = P.simplify_all(mm_paths, cfg.paths.simplify_mm)
+    mm_paths = _optimise(mm_paths, cfg, note,
+                         _ink_sampler(coverage, canvas))
 
     note("estimating")
     stats = gcode.estimate_time(mm_paths, cfg)
@@ -183,6 +169,77 @@ def _resolution_for_pen(img_rgb, cfg: Config) -> int:
         return cfg.tone.resolution
     scaled = int(round(cfg.tone.resolution * MIN_PEN_PX / max(pen_px, 1e-6)))
     return min(MAX_AUTO_RESOLUTION, max(cfg.tone.resolution, scaled))
+
+
+def _optimise(mm_paths, cfg: Config, note, ink_sampler=None):
+    """Weld, simplify, order and bridge strokes - shared by every source."""
+    note("welding strokes")
+    mm_paths = P.merge(mm_paths, cfg.paths.merge_tolerance_mm)
+    mm_paths = P.simplify_all(mm_paths, cfg.paths.simplify_mm)
+    mm_paths = P.drop_short(mm_paths, cfg.paths.min_path_mm)
+    if cfg.paths.sort:
+        note("ordering travel")
+        mm_paths = P.sort_paths(mm_paths, refine=cfg.paths.refine_order)
+    if cfg.paths.bridge_max_mm > 0 and ink_sampler is not None:
+        note("bridging gaps")
+        mm_paths = P.bridge(mm_paths, cfg.paths.bridge_max_mm, ink_sampler,
+                            cfg.paths.bridge_min_ink)
+        mm_paths = P.simplify_all(mm_paths, cfg.paths.simplify_mm)
+    return mm_paths
+
+
+def draw_procedural(kind: str, seed: int, cfg: Config, progress=None) -> Result:
+    """Generate a drawing from scratch (no photo) and lay it out on the page.
+
+    The generator works in its own millimetre space; the drawing is scaled
+    to fill the printable area like a photo would be, then goes through the
+    same stroke optimisation and G-code path as everything else.  Bridging
+    is skipped: there is no tone map to say where a pen-down crossing would
+    be hidden.
+    """
+    def note(msg):
+        if progress:
+            progress(msg)
+
+    t_start = time.perf_counter()
+    from .procedural import GENERATORS
+    if kind not in GENERATORS:
+        raise ValueError(f"unknown subject {kind!r}; expected one of {sorted(GENERATORS)}")
+    note(f"drawing a {kind}")
+    raw = GENERATORS[kind](seed)
+    pts = np.vstack(raw)
+    lo = pts.min(axis=0)
+    size = np.maximum(pts.max(axis=0) - lo, 1e-6)
+    # Canvas sizes are whole pixels; working in tenths of a millimetre keeps
+    # that rounding far below the pen width.
+    k = 10.0
+    canvas = Canvas(int(np.ceil(size[0] * k)), int(np.ceil(size[1] * k)), cfg.page)
+    mm_paths = canvas.paths_to_mm([(p - lo) * k for p in raw])
+    raw_count = len(mm_paths)
+    raw_travel = P.travel_length(mm_paths)
+    mm_paths = _optimise(mm_paths, cfg, note)
+
+    stats = gcode.estimate_time(mm_paths, cfg)
+    rotated = (cfg.page.rotate_output or "auto").lower() != "off" and (
+        cfg.page.height_mm > cfg.page.width_mm
+        or (cfg.page.rotate_output or "").lower() in ("cw", "ccw"))
+    stats.update({
+        "strokes": len(mm_paths),
+        "strokes_before_merge": raw_count,
+        "travel_unoptimised_m": raw_travel / 1000.0,
+        "points": int(sum(len(p) for p in mm_paths)),
+        "image_mm": f"{canvas.width_mm:.0f} × {canvas.height_mm:.0f} mm",
+        "tone_error": None,
+        "elapsed_s": time.perf_counter() - t_start,
+        "resolution": 0,
+        "pen_px": 0.0,
+        "used_depth": False,
+        "rotated_for_bed": bool(rotated),
+        "seed": seed,
+    })
+    blank = np.ones((2, 2), np.float32)
+    return Result(paths=mm_paths, canvas=canvas, config=cfg,
+                  value=blank, coverage=1.0 - blank, stats=stats)
 
 
 def _ink_sampler(coverage: np.ndarray, canvas: Canvas):

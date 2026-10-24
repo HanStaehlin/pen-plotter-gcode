@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import base64
 import io
+import random
 import traceback
 
 from flask import Flask, jsonify, render_template_string, request, send_file
@@ -114,7 +115,6 @@ def index():
 
 @app.route("/generate", methods=["POST"])
 def generate():
-    global _last
     upload = request.files.get("image")
     if not upload:
         return jsonify(error="No image uploaded")
@@ -137,14 +137,29 @@ def generate():
 
     if not result.paths:
         return jsonify(error="Nothing to draw — try raising Ink or Contrast.")
+    return _respond(result, (upload.filename.rsplit(".", 1)[0] or "plot") + ".gcode",
+                    f"engine {cfg.render.engine}, pen {cfg.pen.width_mm} mm")
 
+
+@app.route("/procedural", methods=["POST"])
+def procedural():
+    kind = request.form.get("subject", "frog")
+    raw_seed = (request.form.get("seed") or "").strip()
+    seed = int(raw_seed) if raw_seed.lstrip("-").isdigit() else random.randrange(1_000_000)
+    cfg = config_from_form()
+    try:
+        result = plotter.draw_procedural(kind, seed, cfg)
+    except Exception as exc:
+        traceback.print_exc()
+        return jsonify(error=f"{type(exc).__name__}: {exc}")
+    return _respond(result, f"{kind}-{seed}.gcode", f"procedural {kind}, seed {seed}",
+                    seed=seed)
+
+
+def _respond(result, name, header, **extra):
+    global _last
     preview = result.preview(dpi=150, show_travel=_b("show_travel"))
-    _last = {
-        "gcode": result.gcode(f"engine {cfg.render.engine}, "
-                              f"pen {cfg.pen.width_mm} mm"),
-        "name": (upload.filename.rsplit(".", 1)[0] or "plot") + ".gcode",
-    }
-
+    _last = {"gcode": result.gcode(header), "name": name}
     s = result.stats
     return jsonify(
         preview=base64.b64encode(encode_png(preview)).decode(),
@@ -168,6 +183,7 @@ def generate():
             "pen_px": round(s["pen_px"], 2),
             "elapsed": f"{s['elapsed_s']:.1f}s",
         },
+        **extra,
     )
 
 
@@ -289,6 +305,8 @@ HTML = r"""
   .drop img{display:none;width:54px;height:54px;object-fit:cover;
             border-radius:4px;border:1px solid var(--rule);flex:none}
   .drop.loaded img{display:block}
+  .or{font-size:10.5px;color:var(--ink-3);text-align:center;margin:12px 0 8px;
+       letter-spacing:.06em;text-transform:uppercase}
   .fname{display:none;font-size:12px;font-weight:500;overflow:hidden;
          text-overflow:ellipsis;white-space:nowrap}
   .fname small{display:block;font-family:var(--mono);font-size:10px;
@@ -534,6 +552,12 @@ HTML = r"""
           <div class="fname" id="fname"></div>
           <input type="file" id="file" accept="image/*">
         </div>
+        <div class="or">or draw one from scratch</div>
+        <div class="pair">
+          <select id="subject"><option value="frog" selected>Frog</option></select>
+          <input type="number" id="seed" placeholder="random seed">
+        </div>
+        <button class="btn ghost" id="drawSubject" style="margin-top:8px">Draw a new one</button>
       </section>
 
       <section>
@@ -998,28 +1022,22 @@ const FIELDS = ['ink','angle','coherence','levels','points','depth','coarsest',
 const CHECKS = ['outline','portrait','rotate_out','invert','flip_x','flip_y',
   'remove_bg','show_travel','use_depth'];
 
-$('go').addEventListener('click', async () => {
-  if (!file) return;
-  $('go').disabled = true;
+async function submit(url, form, label) {
+  $('go').disabled = true; $('drawSubject').disabled = true;
   $('dl').style.display = 'none';
   $('stage').classList.add('busy');
   $('msg').textContent = 'Working…';
   $('msg').className = 'note';
-
-  const form = new FormData();
-  form.append('image', file);
-  form.append('engine', engineValue());
   FIELDS.forEach(k => form.append(k, $(k).value));
   CHECKS.forEach(k => form.append(k, $(k).checked ? '1' : '0'));
-
   try {
-    const res = await fetch('/generate', { method: 'POST', body: form });
+    const res = await fetch(url, { method: 'POST', body: form });
     const data = await res.json();
     if (data.error) {
       $('msg').textContent = data.error;
       $('msg').className = 'note bad';
     } else {
-      show(data);
+      show(data, typeof label === 'function' ? label(data) : label);
       const st = data.stats;
       $('msg').textContent = st.resolution > st.asked_resolution
         ? `rendered in ${st.elapsed} · working image raised to ` +
@@ -1033,10 +1051,25 @@ $('go').addEventListener('click', async () => {
     $('msg').className = 'note bad';
   }
   $('stage').classList.remove('busy');
-  $('go').disabled = false;
+  $('go').disabled = !file; $('drawSubject').disabled = false;
+}
+
+$('go').addEventListener('click', () => {
+  if (!file) return;
+  const form = new FormData();
+  form.append('image', file);
+  form.append('engine', engineValue());
+  submit('/generate', form, engineValue());
 });
 
-function show(data) {
+$('drawSubject').addEventListener('click', () => {
+  const form = new FormData();
+  form.append('subject', $('subject').value);
+  form.append('seed', $('seed').value);
+  submit('/procedural', form, d => `${$('subject').value} · seed ${d.seed}`);
+});
+
+function show(data, label) {
   const s = data.stats;
   const wrap = $('sheetwrap');
   wrap.innerHTML =
@@ -1044,7 +1077,7 @@ function show(data) {
     data.preview + '"></div><div class="caption">' + s.size + '</div>';
 
   $('bigTime').textContent = s.time;
-  $('engCap').textContent = engineValue() +
+  $('engCap').textContent = (label || engineValue()) +
     (s.rotated ? ' · turned to landscape' : '');
   $('mLifts').textContent = s.lifts.toLocaleString('en-US').replace(/,/g, ' ');
   $('dLifts').textContent = 'from ' +

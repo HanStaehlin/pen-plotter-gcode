@@ -12,11 +12,11 @@ from .config import (Config, MachineConfig, PageConfig, PAPER_SIZES,
                      PathConfig, PenConfig, RenderConfig, ToneConfig)
 from .engines import ENGINES
 from .geometry import Canvas, InkBuffer
-from .pipeline import Result, convert
+from .pipeline import Result, convert, draw_procedural
 from .tone import cutout, decode_image, load_image
 
 __all__ = [
     "Config", "MachineConfig", "PageConfig", "PAPER_SIZES", "PathConfig",
     "PenConfig", "RenderConfig", "ToneConfig", "ENGINES", "Canvas",
-    "InkBuffer", "Result", "convert", "cutout", "decode_image", "load_image",
+    "InkBuffer", "Result", "convert", "draw_procedural", "cutout", "decode_image", "load_image",
 ]
