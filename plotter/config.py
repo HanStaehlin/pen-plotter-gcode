@@ -193,6 +193,12 @@ class RenderConfig:
     #: 0 = shade the whole frame evenly, 1 = shade only what depth says is
     #: near.  Needs torch; ignored without it.
     illustration_focus: float = 0.4
+    #: Shadow-side band on each outlined shape (fishdraw's crescent shading).
+    illustration_rim: float = 0.45     # 0 disables; needs torch (depth)
+    illustration_rim_mm: float = 6.0   # band width on paper
+    illustration_light_deg: float = 135.0   # light comes from here; 135 = upper left
+    #: Each hatch stroke starts up to this fraction in from its lit end.
+    illustration_fade: float = 0.5
     # region-adaptive
     region_segments: int = 400     # approximate SLIC superpixel count
     #: How much local texture energy it takes for a region to be routed to

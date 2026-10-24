@@ -191,7 +191,15 @@ separate, lighter shading layer the way pen-and-ink work is built:
   light and mid tones instead of every region getting strokes;
 - shading faded on the background using MiDaS depth (`--focus`), so detail
   goes to the subject rather than to blurred grass behind it;
-- no shading on the line pixels themselves, so layers don't double-ink.
+- no shading on the line pixels themselves, so layers don't double-ink;
+- a shadow band on the side of the subject facing away from a virtual light
+  (`illustration_rim`, `illustration_light_deg`), after LingDong's
+  [fishdraw](https://github.com/LingDong-/fishdraw). fishdraw finds that band
+  by subtracting a light-shifted copy of each closed shape; a photo's line
+  work is never closed, so it comes from relighting the depth estimate here;
+- hatch strokes start at a random point up to half their length in from the
+  lit end (`illustration_fade`), so shading thins out instead of stopping
+  on a hard edge - also from fishdraw.
 
 The network runs in about 0.2 s on Metal; weights (MIT) download from the
 authors' Hugging Face Space on first use. The same learned lines are now the
