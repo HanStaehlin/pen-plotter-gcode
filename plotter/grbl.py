@@ -80,10 +80,21 @@ def clean(line: str) -> str:
 
     Comments cost receive-buffer space and GRBL 0.9 throws them away anyway.
     Parenthesised comments go first: they may contain a semicolon, and
-    cutting at it would leave half a comment for GRBL to reject.
+    cutting at it would leave half a comment for GRBL to reject.  They are
+    stripped by depth, so a nested one - "(Bettina (frog))" - goes whole
+    instead of leaving a stray ")" behind.
     """
-    line = re.sub(r"\([^)]*\)?", "", line)
-    return line.split(";", 1)[0].strip()
+    out, depth = [], 0
+    for ch in line:
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth = max(0, depth - 1)
+        elif depth == 0:
+            if ch == ";":
+                break
+            out.append(ch)
+    return "".join(out).strip()
 
 
 def extents(lines) -> tuple[float, float, float, float] | None:

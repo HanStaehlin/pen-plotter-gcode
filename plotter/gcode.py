@@ -18,7 +18,10 @@ def write(paths, cfg: Config, header_comment: str = "") -> str:
 
     if header_comment:
         for line in header_comment.strip().splitlines():
-            out.append(f"({line.strip()})")
+            # GRBL ends a comment at the first ")", so a bracket inside one
+            # - "Bettina (frog)" - would leave the rest as a bad command.
+            text = line.strip().replace("(", "[").replace(")", "]")
+            out.append(f"({text})")
 
     out.append("G21")                      # millimetres
     out.append("G90")                      # absolute
