@@ -6,13 +6,13 @@ Flask>=3.0
 shapely>=2.0          # procedural frogs
 Hershey-Fonts>=2.1    # single-stroke lettering for frog names (MIT)
 
-# Optional. Depth-driven form (MiDaS) and the learned line model
-# (Informative Drawings); both run on Apple Silicon via Metal. Weights
-# download on first use. Without these, engines fall back to classical
-# methods.
+# Optional. Depth-driven form and the learned line model (Informative
+# Drawings); both run on Apple Silicon via Metal. Weights download on first
+# use. Without these, engines fall back to classical methods.
 # torch>=2.1
 # timm>=0.9
 # huggingface_hub>=0.20
+# transformers>=4.45  # Depth Anything V2 (Apache-2.0); without it, MiDaS
 
 # Optional: "Remove background" in the web UI (~170 MB model on first use).
 # rembg>=2.0

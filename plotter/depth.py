@@ -20,10 +20,16 @@ _MODEL = None
 _TRANSFORM = None
 _DEVICE = None
 
-#: torch.hub entry points, cheapest first.  MiDaS_small runs in hundredths of
-#: a second on Metal and is easily good enough to orient hatching; the larger
-#: nets resolve more but this is not a depth-measuring application.
-MODELS = ("MiDaS_small", "DPT_Hybrid", "DPT_Large")
+#: Depth Anything V2 Small is the default: about 0.1-0.2 s on Metal, and it
+#: resolves a nose, eye sockets and a muzzle where MiDaS_small returns one
+#: smooth blob per subject - which is what the shadow band and the hatching
+#: direction are built from.  MiDaS_small (torch.hub) is the fallback when
+#: ``transformers`` is not installed.
+MODELS = ("MiDaS_small", "DPT_Hybrid", "DPT_Large", "DepthAnythingV2_small")
+
+#: Depth Anything V2 Small (Apache-2.0), official weights on Hugging Face.
+#: Needs the optional ``transformers`` package.
+_DA2 = "depth-anything/Depth-Anything-V2-Small-hf"
 
 
 def available() -> bool:
@@ -52,15 +58,37 @@ def _pick_device():
     return torch.device("cpu")
 
 
-def load(model: str = "MiDaS_small"):
+def resolve(model: str) -> str:
+    """The model that will actually run: Depth Anything needs ``transformers``."""
+    if model == "DepthAnythingV2_small" and \
+            importlib.util.find_spec("transformers") is None:
+        return "MiDaS_small"
+    return model
+
+
+def load(model: str = "DepthAnythingV2_small"):
     """Load and cache the depth model.  First call may download weights."""
     global _MODEL, _TRANSFORM, _DEVICE
+    model = resolve(model)
     if _MODEL is not None and _MODEL[0] == model:
         return _MODEL[1], _TRANSFORM, _DEVICE
 
     import contextlib
     import io
     import torch
+    if model == "DepthAnythingV2_small":
+        from transformers import AutoImageProcessor, AutoModelForDepthEstimation
+        with warnings.catch_warnings(), \
+             contextlib.redirect_stderr(io.StringIO()):
+            warnings.simplefilter("ignore")
+            processor = AutoImageProcessor.from_pretrained(_DA2)
+            net = AutoModelForDepthEstimation.from_pretrained(_DA2)
+        _DEVICE = _pick_device()
+        net.to(_DEVICE).eval()
+        _MODEL = (model, net)
+        _TRANSFORM = processor
+        return net, processor, _DEVICE
+
     # torch.hub narrates every cache hit on both stdout and stderr; the
     # caller is a web app and a CLI, neither of which wants that mixed into
     # its own output.
@@ -80,7 +108,7 @@ def load(model: str = "MiDaS_small"):
 
 
 def estimate(img_rgb: np.ndarray, size: tuple[int, int] | None = None,
-             model: str = "MiDaS_small") -> np.ndarray:
+             model: str = "DepthAnythingV2_small") -> np.ndarray:
     """Relative depth for an RGB image, 0..1 with 1 nearest.
 
     ``size`` is (width, height) to resample to — normally the working
@@ -88,10 +116,14 @@ def estimate(img_rgb: np.ndarray, size: tuple[int, int] | None = None,
     """
     import torch
 
+    model = resolve(model)
     net, transform, device = load(model)
     with torch.no_grad():
-        batch = transform(img_rgb).to(device)
-        pred = net(batch)
+        if model == "DepthAnythingV2_small":
+            batch = transform(images=img_rgb, return_tensors="pt")
+            pred = net(pixel_values=batch["pixel_values"].to(device)).predicted_depth
+        else:
+            pred = net(transform(img_rgb).to(device))
         target = (img_rgb.shape[0], img_rgb.shape[1]) if size is None \
             else (size[1], size[0])
         pred = torch.nn.functional.interpolate(

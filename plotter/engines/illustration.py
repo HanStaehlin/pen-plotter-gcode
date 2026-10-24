@@ -60,7 +60,8 @@ def generate(value, coverage, canvas, pen, cfg, features=None, form=None,
     if (rim > 0 or focus > 0) and image_rgb is not None:
         from .. import depth as depth_mod
         if depth_mod.available():
-            depth_map = depth_mod.estimate(image_rgb, size=(w, h))
+            depth_map = depth_mod.estimate(image_rgb, size=(w, h),
+                                           model=cfg.depth_model)
     if rim > 0 and depth_map is not None:
         crescent = _shadow_side(depth_map, px_per_mm, cfg)
         lift = rim * (0.5 + 0.5 * np.clip(coverage / 0.6, 0.0, 1.0))

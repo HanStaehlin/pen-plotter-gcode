@@ -63,8 +63,9 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--form-weight", type=float, default=0.8, metavar="F",
                    help="how strongly depth-estimated form steers hatching; "
                         "0 disables depth estimation entirely")
-    g.add_argument("--depth-model", default="MiDaS_small",
-                   choices=["MiDaS_small", "DPT_Hybrid", "DPT_Large"])
+    g.add_argument("--depth-model", default="DepthAnythingV2_small",
+                   choices=["DepthAnythingV2_small", "MiDaS_small", "DPT_Hybrid", "DPT_Large"],
+                   help="Depth Anything V2 needs transformers; falls back to MiDaS_small")
     g.add_argument("--lines", default="learned", choices=["learned", "coherent", "canny"],
                    help="line source: learned (Informative Drawings), flow-guided DoG, or Canny")
     g.add_argument("--line-style", default="sketch", choices=["sketch", "contour"])

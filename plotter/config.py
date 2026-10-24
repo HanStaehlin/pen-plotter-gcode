@@ -182,7 +182,7 @@ class RenderConfig:
     #: makes strokes wrap a form instead of ringing a highlight.
     form_weight: float = 0.8
     form_smooth: float = 8.0       # px; curvature direction is twitchy
-    depth_model: str = "MiDaS_small"
+    depth_model: str = "DepthAnythingV2_small"   # falls back to MiDaS_small
     #: "coherent" = flow-based DoG (connected line work), "canny" = the old
     #: fixed-scale detector.
     line_method: str = "learned"

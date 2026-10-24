@@ -114,7 +114,8 @@ open("photo.gcode", "w").write(result.gcode())
 
 ## Optional dependencies
 
-`torch` enables depth estimation (MiDaS) and the learned line model
-(Informative Drawings, MIT licence); both run on Apple Silicon's Metal
-backend. Weights download on first use. Without torch, engines fall back to
+`torch` enables depth estimation and the learned line model (Informative
+Drawings, MIT licence); both run on Apple Silicon's Metal backend. Depth uses
+Depth Anything V2 Small (Apache-2.0) when `transformers` is installed and
+MiDaS otherwise. Weights download on first use. Without torch, engines fall back to
 classical methods. `rembg` powers background removal.

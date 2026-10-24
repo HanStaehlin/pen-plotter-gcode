@@ -715,7 +715,7 @@ HTML = r"""
         </div>
         <label class="check">
           <input type="checkbox" id="use_depth" checked> Depth-driven form
-          <span class="tip" title="Estimates depth with MiDaS on the GPU and hatches along the surface's principal curvature, so strokes wrap a form instead of ruling straight across it. Only applied where the image itself has no structure to follow, so texture is left alone. Needs PyTorch; skipped if absent.">i</span>
+          <span class="tip" title="Estimates depth (Depth Anything V2, or MiDaS without transformers) on the GPU and hatches along the surface's principal curvature, so strokes wrap a form instead of ruling straight across it. Only applied where the image itself has no structure to follow, so texture is left alone. Needs PyTorch; skipped if absent.">i</span>
         </label>
         <div class="ctl" data-when="use_depth">
           <label>Form strength <span class="v" id="form_weightV">0.80</span></label>

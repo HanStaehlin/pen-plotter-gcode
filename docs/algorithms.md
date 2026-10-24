@@ -157,15 +157,23 @@ across-pass finds the edge; the along-pass is what turns a field of noisy
 responses into connected line work a pen can draw in one stroke.
 
 **Depth-driven form** (`--form-weight`, default 0.8) estimates monocular
-depth with MiDaS and hatches along the surface's principal curvature — the
+depth and hatches along the surface's principal curvature — the
 direction an engraver would ring a cylinder, not the direction along its
 axis. On Apple Silicon this runs on the Metal (MPS) backend and costs about
-20 ms after the model is warm. It needs PyTorch (`pip install torch`); the
+0.1–0.2 s after the model is warm. It needs PyTorch (`pip install torch`); the
 app runs fine without it and the control is simply skipped.
+
+The depth model is Depth Anything V2 Small (Apache-2.0, needs `transformers`),
+with MiDaS small as the fallback. MiDaS returns roughly one smooth blob per
+subject; Depth Anything resolves a nose, eye sockets and a muzzle, so the
+shadow band hugs the cheek and jaw instead of spreading across the forehead.
+A dedicated surface-normal model was considered: DSINE's licence is
+research-only, and Marigold (a diffusion model) is far slower; normals from
+the sharper depth were enough to get most of the gain.
 
 Depth is smooth by nature, and applying it everywhere erases real texture —
 tried naively, it flattened every feather on a photograph of a bird into
-ruled diagonal, because feathers are texture MiDaS smooths away, not
+ruled diagonal, because feathers are texture depth smooths away, not
 geometry it can see. Depth is therefore blended in only where the image's own
 structure is weak (`1 - coherence`), so it fills the ground shading can't
 hold — a cheek, a shoulder, the side of a sphere — and leaves real texture to
@@ -190,7 +198,7 @@ separate, lighter shading layer the way pen-and-ink work is built:
 
 - hatching only where tone is darker than `--shadow`; the paper carries the
   light and mid tones instead of every region getting strokes;
-- shading faded on the background using MiDaS depth (`--focus`), so detail
+- shading faded on the background using depth (`--focus`), so detail
   goes to the subject rather than to blurred grass behind it;
 - no shading on the line pixels themselves, so layers don't double-ink;
 - a shadow band on the side of the subject facing away from a virtual light
