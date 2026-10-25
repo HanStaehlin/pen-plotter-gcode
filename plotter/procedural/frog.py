@@ -22,9 +22,9 @@ import math
 import numpy as np
 from shapely import affinity
 from shapely.geometry import LineString, Point, Polygon
-from shapely.ops import unary_union
 
-from .geom import blob, catmull, crescent, hatch, limb, lines_of, poisson
+from .geom import (blob, catmull, crescent, cut, hatch, join, limb, lines_of, merge,
+                   minus, poisson)
 
 LIGHT = (-1.0, -1.25)
 
@@ -202,7 +202,7 @@ def digit_set(base, ang, lengths, spread, w, D, rng, web, scale):
         # Xenopus carries small black claws on its three inner toes
         for tip, d in tips[-3:]:
             claws.append(LineString([tip - d * w * .2, tip + d * w * .9]))
-    return unary_union(shapes + [web_poly]), claws
+    return merge(shapes + [web_poly]), claws
 
 
 def side_limbs(P, rng, sign):
@@ -245,7 +245,7 @@ def side_limbs(P, rng, sign):
     toes, tclaws = digit_set(A, foot_ang, toe_len * .2 * L * D["length"],
                              math.radians(rng.uniform(75, 95)), .034 * L * th, D, rng,
                              D["web_hind"], L)
-    foot = unary_union([tarsus, toes])
+    foot = merge([tarsus, toes])
 
     parts = dict(arm=arm, hand=hand, thigh=thigh, shank=shank, foot=foot)
     spines = dict(arm=[S, E, W], thigh=[H, K], shank=[K, Hl])
@@ -325,7 +325,7 @@ def bands_across(spine, shape, n, rng, L):
         w = rng.uniform(.035, .06) * L
         quad = Polygon([c - d * w / 2 - perp * L * .2, c + d * w / 2 - perp * L * .2,
                         c + d * w / 2 + perp * L * .2, c - d * w / 2 + perp * L * .2])
-        band = quad.intersection(shape)
+        band = cut(quad, shape)
         if not band.is_empty:
             out.append(band)
     return out
@@ -341,7 +341,7 @@ def reticulate(region, rng, L):
     cells = voronoi_diagram(MultiPoint([tuple(p) for p in pts]), envelope=region.envelope.buffer(L))
     out = []
     for c in cells.geoms:
-        g = c.buffer(-.014 * L).intersection(region)
+        g = cut(c.buffer(-.014 * L), region)
         if not g.is_empty and g.area > (.02 * L) ** 2:
             out.append(g.buffer(.006 * L).buffer(-.006 * L))
     return out
@@ -356,7 +356,7 @@ def warts_on(region, P, rng, s, density):
         w = Point(*q).buffer(r, 12)
         # a wart is a dome: the arc on its shadow side reads as a bump,
         # where a full circle reads as a hole punched in the skin
-        arc = w.boundary.intersection(crescent(w.buffer(.01), r * .9, LIGHT).buffer(.05))
+        arc = cut(w.boundary, crescent(w.buffer(.01), r * .9, LIGHT).buffer(.05))
         out += lines_of(arc)
     return out
 
@@ -399,28 +399,28 @@ def build(seed: int = 0, family: str | None = None):
     front = Polygon()
     visible = {}
     for name, shape, shade in order:
-        vis = shape.difference(front)
+        vis = minus(shape, front)
         visible.setdefault(name, []).append(vis)
-        out += lines_of(shape.boundary.difference(front))
+        out += lines_of(minus(shape.boundary, front))
         if shade > 0:
-            band = crescent(shape, .055 * L * shade, LIGHT).intersection(vis)
+            band = cut(crescent(shape, .055 * L * shade, LIGHT), vis)
             out += hatch(band, 1.1 * s, 35, rng, .5, LIGHT)
-        front = front.union(shape)
+        front = join(front, shape)
     silhouette = front
-    vis = {k: unary_union(v) for k, v in visible.items()}
+    vis = {k: merge(v) for k, v in visible.items()}
 
     # eye detail
     for e in eyes:
         out += lines_of(e["iris"].boundary)
-        dark = e["pupil"].difference(e["glint"])
+        dark = minus(e["pupil"], e["glint"])
         out += hatch(dark, .42 * s, 80, rng, 0.0, LIGHT)
         out += lines_of(dark.boundary)
-        out += lines_of(e["lid"].difference(e["eye"].buffer(-.4 * s)).intersection(e["eye"].buffer(1.2 * s)))
+        out += lines_of(cut(minus(e["lid"], e["eye"].buffer(-.4 * s)), e["eye"].buffer(1.2 * s)))
 
-    eyes_all = unary_union([e["eye"] for e in eyes] + [e["horn"] for e in eyes])
-    back = vis.get("body", Polygon()).difference(eyes_all.buffer(1.5 * s))
+    eyes_all = merge([e["eye"] for e in eyes] + [e["horn"] for e in eyes])
+    back = minus(vis.get("body", Polygon()), eyes_all.buffer(1.5 * s))
     for g in extras:
-        back = back.difference(g.buffer(.8 * s))
+        back = minus(back, g.buffer(.8 * s))
 
     # nostrils and, for toads, cranial crests
     for sg in (-1, 1):
@@ -431,7 +431,7 @@ def build(seed: int = 0, family: str | None = None):
             crest = LineString(catmull([(cx * .9, _y(L, P["eye"]["y"] - .09)),
                                         (cx, _y(L, P["eye"]["y"])),
                                         (cx * 1.15, _y(L, P["eye"]["y"] + .1))], closed=False))
-            out += lines_of(crest.intersection(back))
+            out += lines_of(cut(crest, back))
 
     # dorsolateral folds
     if skin["ridges"]:
@@ -441,48 +441,48 @@ def build(seed: int = 0, family: str | None = None):
                 ridge = LineString(catmull([(x0 * .9, _y(L, .3)), (x0 * 1.15, _y(L, .55)),
                                             (x0 * 1.05, _y(L, .8)), (x0 * .7, _y(L, .93))],
                                            closed=False))
-                out += lines_of(ridge.intersection(back))
+                out += lines_of(cut(ridge, back))
 
     # pattern: the dark marks
     marks = []
     if pat["mid_stripe"]:
         stripe = LineString([(0, _y(L, .06)), (0, _y(L, .97))]).buffer(.012 * L)
-        out += lines_of(stripe.intersection(back).boundary)
+        out += lines_of(cut(stripe, back).boundary)
     if pat["bar"]:
         e0 = np.array(eyes[0]["eye"].centroid.coords[0])
         e1 = np.array(eyes[1]["eye"].centroid.coords[0])
-        marks.append(LineString([e0, e1]).buffer(.018 * L).intersection(back))
+        marks.append(cut(LineString([e0, e1]).buffer(.018 * L), back))
     if pat["chevron"]:
         w = LineString([(-.11 * L, _y(L, .37)), (-.04 * L, _y(L, .45)), (0, _y(L, .4)),
                         (.04 * L, _y(L, .45)), (.11 * L, _y(L, .37))])
-        marks.append(w.buffer(.014 * L).intersection(back))
+        marks.append(cut(w.buffer(.014 * L), back))
     if pat["lat_bands"]:
         for sg in (-1, 1):
             band = LineString(catmull([(sg * .05 * L, _y(L, .02)),
                                        (sg * P["shape"]["head"] * L * .62, _y(L, .2)),
                                        (sg * P["shape"]["shoulder"] * L * .72, _y(L, .5)),
                                        (sg * P["shape"]["hip"] * L * .7, _y(L, .9))], closed=False))
-            marks.append(band.buffer(.028 * L).intersection(back))
+            marks.append(cut(band.buffer(.028 * L), back))
     for k in range(pat["stripes"]):
         x0 = 0 if pat["stripes"] == 1 else (k - .5) * .1 * L
-        marks.append(LineString([(x0, _y(L, .12)), (x0, _y(L, .95))]).buffer(.022 * L).intersection(back))
+        marks.append(cut(LineString([(x0, _y(L, .12)), (x0, _y(L, .95))]).buffer(.022 * L), back))
     for _ in range(pat["spots"]):
         q = _point_in(back, rng)
         if q is not None:
             lo, hi = pat["spot_size"]
-            marks.append(blob(*q, rng.uniform(lo, hi) * L, rng.uniform(lo, hi) * L, rng, .25,
-                              rot=rng.uniform(0, 3)).intersection(back))
+            marks.append(cut(blob(*q, rng.uniform(lo, hi) * L, rng.uniform(lo, hi) * L, rng, .25,
+                              rot=rng.uniform(0, 3)), back))
     for _ in range(pat["blotches"]):
         q = _point_in(back, rng)
         if q is not None:
-            marks.append(blob(*q, rng.uniform(.05, .09) * L, rng.uniform(.035, .07) * L, rng, .3,
-                              k=11, rot=rng.uniform(0, 3)).intersection(back))
+            marks.append(cut(blob(*q, rng.uniform(.05, .09) * L, rng.uniform(.035, .07) * L, rng, .3,
+                              k=11, rot=rng.uniform(0, 3)), back))
     if pat["reticulate"]:
         marks += reticulate(back, rng, L)
     if pat["leg_bands"]:
         for parts, spines, _ in sides:
             for limb_name in ("thigh", "shank", "arm"):
-                region = vis.get(limb_name, Polygon()).intersection(parts[limb_name])
+                region = cut(vis.get(limb_name, Polygon()), parts[limb_name])
                 n = 3 if limb_name == "thigh" else 2
                 marks += bands_across(spines[limb_name], region, n, rng, L)
 
@@ -490,23 +490,23 @@ def build(seed: int = 0, family: str | None = None):
     # Overlapping marks become one mark: two blotches drawn separately leave
     # a stray outline running through the middle of the dark patch.
     if marks:
-        merged = unary_union(marks)
+        merged = merge(marks)
         marks = list(merged.geoms) if hasattr(merged, "geoms") else [merged]
     for m in marks:
         out += lines_of(m.boundary)
         out += fill(m, P, rng, s)
         if pat["pale_border"]:
-            out += lines_of(m.buffer(.9 * s).boundary.intersection(back))
-    marked = unary_union(marks) if marks else Polygon()
+            out += lines_of(cut(m.buffer(.9 * s).boundary, back))
+    marked = merge(marks) if marks else Polygon()
 
     # skin texture
-    plain = back.difference(marked.buffer(.5 * s))
+    plain = minus(back, marked.buffer(.5 * s))
     if skin["warts"] > 0:
         region = plain
         if P["family"] in ("toad", "hornedfrog"):
             for g in extras:
-                region = region.union(g.buffer(-1 * s))
-            region = region.union(vis.get("thigh", Polygon()).difference(marked))
+                region = join(region, g.buffer(-1 * s))
+            region = join(region, minus(vis.get("thigh", Polygon()), marked))
         out += warts_on(region, P, rng, s, skin["warts"])
     if skin["granules"] > 0:
         for q in poisson(plain, (2.6 - 1.2 * skin["granules"]) * s, rng, limit=500):
@@ -524,7 +524,7 @@ def build(seed: int = 0, family: str | None = None):
                 for i in range(n):
                     a = path.interpolate(i * 3.0 * s)
                     b = path.interpolate(i * 3.0 * s + 1.4 * s)
-                    seg = LineString([a, b]).intersection(back)
+                    seg = cut(LineString([a, b]), back)
                     out += lines_of(seg)
 
     for _, _, claws in sides:
@@ -533,7 +533,7 @@ def build(seed: int = 0, family: str | None = None):
 
     # soft drop shadow down-right of the animal, a few faint strokes
     off = affinity.translate(silhouette, .025 * L, .035 * L)
-    shadow = off.difference(silhouette.buffer(.6 * s))
+    shadow = minus(off, silhouette.buffer(.6 * s))
     out += hatch(shadow, 1.5 * s, 35, rng, .65, LIGHT)
 
     return [np.asarray(q, float) for q in out if len(q) >= 2]
