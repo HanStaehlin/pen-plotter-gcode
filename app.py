@@ -10,6 +10,7 @@ import base64
 import io
 import re
 import traceback
+import unicodedata
 
 from flask import Flask, jsonify, render_template_string, request, send_file
 
@@ -428,6 +429,22 @@ def machine_stop():
     return _machine_call(lambda: _machine.stop(Config().machine.pen_up_cmd))
 
 
+@app.route("/lettering", methods=["POST"])
+def lettering_route():
+    text = request.form.get("text", "")
+    cfg = config_from_form()
+    try:
+        result = plotter.draw_text(text, cfg, style=request.form.get("style", "calligraphy"),
+                                   align=request.form.get("align", "left"))
+    except Exception as exc:
+        traceback.print_exc()
+        return jsonify(error=f"{type(exc).__name__}: {exc}")
+    first = next((ln.lstrip("# ").strip() for ln in text.splitlines() if ln.strip()), "text")
+    ascii_name = unicodedata.normalize("NFKD", first).encode("ascii", "ignore").decode()
+    slug = re.sub(r"[^a-z0-9]+", "-", ascii_name.lower()).strip("-")[:40] or "text"
+    return _respond(result, f"{slug}.gcode", first[:60])
+
+
 @app.route("/download")
 def download():
     if not _last:
@@ -756,6 +773,9 @@ HTML = r"""
              pointer-events:none}
   .cam-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
   .cam-bar select{width:auto;max-width:280px}
+  textarea#lettering{width:100%;resize:vertical;font:12px/1.5 var(--mono);color:var(--ink);
+    background:var(--field);border:1px solid var(--rule-2);border-radius:5px;padding:8px 9px}
+  textarea#lettering:focus{outline:none;border-color:var(--ink)}
 
   /* ── sidebar guidance ──────────────────────────────────────── */
   .subhead{font-size:10px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;
@@ -861,6 +881,22 @@ HTML = r"""
           <input type="text" id="frogname" placeholder="name (blank = invent one)">
         </div>
         <button class="btn ghost" id="drawSubject" style="margin-top:8px">Draw a new one</button>
+        <div class="or">or write text</div>
+        <textarea id="lettering" rows="5" spellcheck="false"
+          placeholder="# A heading&#10;Lines as you want them.&#10;  Leading spaces indent."></textarea>
+        <div class="pair" style="margin-top:8px">
+          <select id="letterStyle" aria-label="Lettering style">
+            <option value="calligraphy" selected>Calligraphy</option>
+            <option value="book">Book</option>
+            <option value="handwriting">Handwriting</option>
+            <option value="technical">Technical</option>
+          </select>
+          <select id="letterAlign" aria-label="Alignment">
+            <option value="left" selected>Left</option>
+            <option value="center">Centred</option>
+          </select>
+        </div>
+        <button class="btn ghost" id="writeText" style="margin-top:8px">Write it</button>
       </section>
 
       <section>
@@ -1487,6 +1523,16 @@ $('drawSubject').addEventListener('click', () => {
   form.append('name', $('frogname').value);
   // Show the name it got, so the same frog can be drawn again by typing it.
   submit('/procedural', form, d => { $('frogname').placeholder = d.name; return d.name; });
+});
+
+$('writeText').addEventListener('click', () => {
+  const text = $('lettering').value;
+  if (!text.trim()) { $('lettering').focus(); return; }
+  const form = new FormData();
+  form.append('text', text);
+  form.append('style', $('letterStyle').value);
+  form.append('align', $('letterAlign').value);
+  submit('/lettering', form, $('letterStyle').selectedOptions[0].textContent + ' lettering');
 });
 
 function show(data, label) {

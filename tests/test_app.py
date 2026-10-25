@@ -78,3 +78,10 @@ def test_a_drawing_bigger_than_the_bed_asks_first(client, photo, fake):
     _generate(client, photo, engine="illustration", paper="a3")    # 420 x 297 > 300 x 210
     d = client.post("/machine/start").get_json()
     assert not d["ok"] and "bed" in d["confirm"]
+
+
+def test_lettering_route(client):
+    d = client.post("/lettering", data={"text": "# Grüezi\nEin kleiner Test.",
+                                        "style": "book", "align": "center"}).get_json()
+    assert "error" not in d and d["stats"]["lifts"] > 0
+    assert webapp._last["name"] == "gruezi.gcode"

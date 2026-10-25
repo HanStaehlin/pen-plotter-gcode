@@ -34,6 +34,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--name", help='with --draw: the animal\'s name, e.g. "Rana viridis"; '
                    "the same name always gives the same drawing (default: invent one)")
     p.add_argument("--seed", type=int, help="with --draw: pick an invented name by number")
+    p.add_argument("--write", metavar="TEXT_FILE",
+                   help='set the text in this file as lettering ("# " starts a heading, '
+                        'leading spaces indent; "-" reads stdin)')
+    p.add_argument("--style", default="calligraphy",
+                   choices=["calligraphy", "book", "handwriting", "technical"],
+                   help="with --write: lettering style")
+    p.add_argument("--align", default="left", choices=["left", "center"],
+                   help="with --write: line alignment")
+    p.add_argument("--size", type=float, metavar="MM",
+                   help="with --write: body letter size (default: fit the page)")
     p.add_argument("--list-engines", action="store_true",
                    help="describe the available engines and exit")
 
@@ -261,8 +271,25 @@ def main(argv=None) -> int:
             cv2.imwrite(path, cv2.cvtColor(result.preview(dpi=args.dpi), cv2.COLOR_RGB2BGR))
         return 0
 
+    if args.write:
+        from plotter import draw_text
+        text = sys.stdin.read() if args.write == "-" else Path(args.write).read_text()
+        cfg = config_from_args(args)
+        result = draw_text(text, cfg, style=args.style, align=args.align, size_mm=args.size)
+        stem = "lettering" if args.write == "-" else Path(args.write).stem
+        out = Path(args.output) if args.output else Path(f"{stem}.gcode")
+        out.write_text(result.gcode(f"{stem} ({args.style} lettering)"))
+        s = result.stats
+        if not args.quiet:
+            print(f"  {args.style}, letters {s['body_mm']:.1f} mm: {s['label']}, "
+                  f"{s['pen_lifts']} pen lifts -> {out}")
+        if args.preview is not None:
+            path = str(out.with_suffix("")) + "_preview.png" if args.preview == "auto" else args.preview
+            cv2.imwrite(path, cv2.cvtColor(result.preview(dpi=args.dpi), cv2.COLOR_RGB2BGR))
+        return 0
+
     if not args.input:
-        parser.error("an input image is required (or use --draw frog)")
+        parser.error("an input image is required (or use --draw frog / --write text.txt)")
 
     src = Path(args.input)
     if not src.exists():

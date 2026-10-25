@@ -405,7 +405,8 @@ class Grbl:
         job = self.job
         self._feed(lines, job)
         if job["state"] != "stopped":
-            job["state"] = "done"
+            # Log first, then say done: whatever reacts to "done" should
+            # find the entry already written.
             job["finished"] = time.time()
             if job["estimate_s"] > 0:
                 try:
@@ -419,6 +420,7 @@ class Grbl:
                               "finished": time.strftime("%Y-%m-%d %H:%M")})
                 except OSError as exc:
                     self.last_error = f"could not log plot: {exc}"
+            job["state"] = "done"
 
     def _feed(self, lines: list[str], job: dict):
         """Stream lines into GRBL's buffer and wait until they have run."""

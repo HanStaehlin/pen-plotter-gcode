@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import unicodedata
 
 import cv2
 import numpy as np
@@ -21,6 +22,8 @@ def write(paths, cfg: Config, header_comment: str = "") -> str:
             # GRBL ends a comment at the first ")", so a bracket inside one
             # - "Bettina (frog)" - would leave the rest as a bad command.
             text = line.strip().replace("(", "[").replace(")", "]")
+            # Plain ASCII: older senders and firmware choke on anything else.
+            text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
             out.append(f"({text})")
 
     out.append("G21")                      # millimetres

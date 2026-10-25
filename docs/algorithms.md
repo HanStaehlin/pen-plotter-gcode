@@ -293,6 +293,27 @@ cleaning up the mask (tried; made no measurable difference). Worth it when a
 subject genuinely mixes texture and smooth shading; pure `flowlines` remains
 the better choice when everything in frame is already texture.
 
+## Lettering
+
+A plotter needs fonts whose glyphs are stroke centrelines, not outlines to
+fill; the Hershey fonts are exactly that, from the 1960s, in roman, italic,
+script and blackletter faces (`plotter/lettering.py`).
+
+Calligraphy's thick and thin come from a flat nib held at a fixed angle: a
+stroke across the nib is as wide as the nib, a stroke along it a hairline.
+A round pen has no edge, but the same contrast appears when each stroke is
+drawn several times side by side, shifted along the nib's edge (40°, about
+7.5% of the letter size wide). The passes are joined into one zigzag, so a
+stroke still costs one pen lift and its ends come out cut at the nib angle,
+as a real nib's do. The blackletter headings are not nibbed: their glyphs are
+already drawn with doubled strokes, and nibbing them closes every counter.
+
+Layout fits the largest body size, up to 9 mm, at which every line fits the
+width and the block fits the height, by bisection. Line breaks in a poem
+carry meaning, so text shrinks to keep lines whole and wraps, with a hanging
+indent, only when even 3 mm is too wide. The block is centred on the page with
+lines left-aligned inside it, or each line centred.
+
 ## Hilbert variants
 
 On `hilbert`, **Coarsest fill** (`--coarsest`) is the setting that matters.

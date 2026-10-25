@@ -85,6 +85,26 @@ Parts are closed polygons drawn front to back, each clipped by what is in
 front of it, and shaded fishdraw's way: hatch the part of each shape not
 covered by a copy shifted toward the light. Generation takes 0.1-1 s.
 
+The same generator runs in the browser at
+[hannesstaehlin.ch/frog](https://hannesstaehlin.ch/frog), under Pyodide.
+
+## Lettering
+
+Text can be set on the page in single-stroke Hershey fonts, so the plotter
+writes it rather than outlining it. In the app, use *or write text* under
+Source; on the command line, `--write`:
+
+    python3 image_to_gcode.py --write poem.txt --style calligraphy
+    python3 image_to_gcode.py --write poem.txt --style book --align center
+
+A line starting with `# ` is a heading, leading spaces indent a line, and a
+blank line leaves a gap. The text is sized to fill the page (or `--size MM`)
+and long lines wrap. Styles: **calligraphy** (blackletter headings, script
+body written with a simulated broad nib), **book** (Times italic),
+**handwriting** (cursive), **technical** (plain sans). Accented letters are
+composed from the base letter and a drawn mark, since the fonts are ASCII;
+ß is written ss.
+
 ## Tests
 
 ```

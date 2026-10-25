@@ -339,6 +339,53 @@ def _drawn_sampler(mm_paths, canvas: Canvas, cfg: Config):
 BRIDGE_SIGMA_MM = 0.6
 
 
+def draw_text(text: str, cfg: Config | None = None, style: str = "calligraphy",
+              align: str = "left", size_mm: float | None = None, progress=None) -> Result:
+    """Set text on the page in single-stroke lettering (see lettering.py).
+
+    Unlike a photo or a frog, text is laid out at its real size on the
+    printable area rather than scaled to fill it.
+    """
+    from . import lettering
+    t_start = time.perf_counter()
+    cfg = cfg or Config()
+    page = cfg.page
+    strokes, body_mm = lettering.compose(text, style, page.draw_w, page.draw_h,
+                                         align=align, size_mm=size_mm,
+                                         pen_mm=cfg.pen.width_mm)
+    if not strokes:
+        raise ValueError("nothing to write")
+    k = 10.0                                    # canvas pixels per mm
+    canvas = Canvas(int(round(page.draw_w * k)), int(round(page.draw_h * k)), page)
+    mm_paths = canvas.paths_to_mm([s * k for s in strokes])
+    raw_count = len(mm_paths)
+    raw_travel = P.travel_length(mm_paths)
+    note = progress or (lambda m: None)
+    mm_paths = _optimise(mm_paths, cfg, note)
+    stats = gcode.estimate_time(mm_paths, cfg)
+    rotated = (cfg.page.rotate_output or "auto").lower() != "off" and (
+        cfg.page.height_mm > cfg.page.width_mm
+        or (cfg.page.rotate_output or "").lower() in ("cw", "ccw"))
+    stats.update({
+        "strokes": len(mm_paths),
+        "strokes_before_merge": raw_count,
+        "travel_unoptimised_m": raw_travel / 1000.0,
+        "points": int(sum(len(p) for p in mm_paths)),
+        "image_mm": f"{canvas.width_mm:.0f} × {canvas.height_mm:.0f} mm",
+        "likeness": None,
+        "tone_error": None,
+        "elapsed_s": time.perf_counter() - t_start,
+        "resolution": 0,
+        "pen_px": 0.0,
+        "used_depth": False,
+        "rotated_for_bed": bool(rotated),
+        "body_mm": body_mm,
+    })
+    blank = np.ones((2, 2), np.float32)
+    return Result(paths=mm_paths, canvas=canvas, config=cfg,
+                  value=blank, coverage=1.0 - blank, stats=stats)
+
+
 def _ink_sampler(coverage: np.ndarray, canvas: Canvas):
     """Sample a coverage map at machine-millimetre points, for bridging."""
     h, w = coverage.shape
