@@ -83,6 +83,7 @@ def config_from_form() -> Config:
     cfg.render.hatch_share = _f("hatch_share", 0.30)
     cfg.render.hilbert_smooth = _f("hilbert_smooth", 0.5)
     cfg.render.subject_focus = _f("subject_focus", 0.8)
+    cfg.render.singleline_detail = _f("singleline_detail", 1.0)
     cfg.render.hilbert_detail = _f("hilbert_detail", 1.2)
     cfg.render.hatch_coherence = _f("hatch_coherence", 0.45)
     cfg.render.region_segments = _i("region_segments", 400)
@@ -115,6 +116,7 @@ ENGINE_UI = {
     "illustration": ("fast", "Pen-and-ink: outlines with shadow hatching. Light and airy."),
     "waves": ("medium", "One wavy line sweeps the page. Strong tone, graphic look."),
     "hilbert": ("medium", "One maze-like curve. Most faithful tone, subject on white."),
+    "singleline": ("fastest", "One unbroken line, the way continuous-line artists draw."),
     "crosshatch": ("slow", "Layered engraving-style hatching."),
     "flowlines": ("slow", "Strokes follow fur, feathers and hair."),
     "adaptive": ("slow", "Cross-hatch on smooth areas, flow lines on texture."),
@@ -123,7 +125,7 @@ ENGINE_UI = {
     "outline": ("fastest", "Edges only, no shading."),
     "lineart": ("fastest", "Traces an existing drawing or scan."),
 }
-FEATURED = ("illustration", "waves", "hilbert")
+FEATURED = ("illustration", "waves", "hilbert", "singleline")
 
 
 @app.route("/")
@@ -942,6 +944,12 @@ HTML = r"""
             <span class="v" id="subject_focusV">0.80</span></label>
           <input type="range" id="subject_focus" min="0" max="1" step="0.05" value="0.8">
         </div>
+        <div class="ctl" data-for="singleline">
+          <label><span>Detail
+            <span class="tip" title="How much the line traces. Lower is sparser and more abstract; higher follows more of the features, at the cost of more scribble.">i</span></span>
+            <span class="v" id="singleline_detailV">1.0</span></label>
+          <input type="range" id="singleline_detail" min="0.3" max="2" step="0.1" value="1">
+        </div>
         <div class="ctl" data-for="flowlines">
           <label>Follow image structure <span class="v" id="coherenceV">100%</span></label>
           <input type="range" id="coherence" min="0" max="1" step="0.05" value="1">
@@ -1385,6 +1393,7 @@ const FMT = {
   illustration_shadow:v=>(+v).toFixed(2), illustration_focus:v=>(+v).toFixed(2),
   illustration_tone:v=>(+v).toFixed(2),
   time_limit:v=>(+v===0?'off':v+' min'), subject_focus:v=>(+v).toFixed(2),
+  singleline_detail:v=>(+v).toFixed(1),
   spacing:v=>(+v===0?'auto':(+v).toFixed(1)+' mm'),
   pen:v=>(+v).toFixed(2)+' mm', contrast:v=>(+v).toFixed(1),
   detail:v=>(+v).toFixed(2), exposure:v=>(+v).toFixed(2), gamma:v=>(+v).toFixed(2),
@@ -1473,7 +1482,7 @@ const FIELDS = ['ink','angle','coherence','levels','points','depth','coarsest',
   'illustration_shading','illustration_shadow','illustration_focus','illustration_tone',
   'pen','paper','margin','contrast','detail','exposure','gamma','chroma',
   'ink_response','resolution','merge','bridge','bridge_min_ink','max_coverage',
-  'feed','travel_feed','time_limit','subject_focus'];
+  'feed','travel_feed','time_limit','subject_focus','singleline_detail'];
 const CHECKS = ['outline','portrait','rotate_out','invert','flip_x','flip_y',
   'remove_bg','show_travel','use_depth'];
 

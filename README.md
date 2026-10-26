@@ -36,6 +36,7 @@ See [docs/hardware.md](docs/hardware.md#plotting-from-the-app).
 | Engine         | Look                                                 | Pen lifts         |
 |----------------|------------------------------------------------------|-------------------|
 | `illustration` | Learned line drawing over shadow-only, form-following hatching | fewest            |
+| `singleline`   | One unbroken line, the way continuous-line artists draw | one stroke |
 | `crosshatch`   | Layered engraving; directions stack as tone darkens  | many medium       |
 | `flowlines`    | Strokes follow the image's own structure             | many long strokes |
 | `adaptive`     | Cross-hatch where smooth, flow lines where textured  | many, mixed       |

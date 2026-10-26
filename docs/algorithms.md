@@ -293,6 +293,38 @@ cleaning up the mask (tried; made no measurable difference). Worth it when a
 subject genuinely mixes texture and smooth shading; pure `flowlines` remains
 the better choice when everything in frame is already texture.
 
+## One line
+
+After Magne et al., *Single-Line Drawing Generation via Semantics-Driven
+Optimization* (Computer Graphics Forum 2026, [code](https://github.com/tanguymagne/SLDgen),
+MIT): one curve, optimised against a rendering of itself. The paper steers
+it with Stable Diffusion 3.5 on a 24 GB GPU; here it is steered by the line
+network's drawing, and runs in a few seconds on a laptop
+(`plotter/singleline.py`, engine `singleline`).
+
+1. **Choose what to trace.** Contours from the line network are ranked by
+   darkness times length, weighted toward the subject by depth, and kept
+   until a length budget is spent (`--line-detail`). Contours under 3% of
+   the picture are dropped - fur, hair and fabric come out as hundreds of
+   short marks, and a single line chasing them scribbles - and so are
+   contours far from all the others, since reaching them takes a long jump.
+2. **Chain them** into one path with the shortest connecting moves, the
+   way a continuous-line artist moves on to the nearest feature, then
+   resample evenly and smooth out the pixel staircase.
+3. **Fit** an open Catmull-Rom spline through the path on the GPU (Adam,
+   150 steps): ink is splatted along the curve in proportion to the length
+   each sample stands for, blurred as the eye blurs, and compared with the
+   smoothed contours plus a little of the network's drawing. Repulsion keeps
+   parts of the line that are far apart along it from piling up on the page
+   (neighbours found with a k-d tree; all pairs would need gigabytes), and
+   curvature and length terms keep it calm.
+
+What did not work, for the record: a TSP tour through points spread by
+darkness (the paper's start) only follows tone, and the fit could not pull
+it into features without the paper's semantic guidance; asking the line to
+match the target's total ink made it crumple into worms; a closed curve
+had to come home across the picture.
+
 ## Lettering
 
 A plotter needs fonts whose glyphs are stroke centrelines, not outlines to

@@ -123,7 +123,8 @@ def convert(img_rgb: np.ndarray, cfg: Config, progress=None) -> Result:
             coverage = coverage * _subject_weight(depth_map, focus)
 
     overlay, overlay_scores = [], []
-    if cfg.render.outline and cfg.render.engine not in ("outline", "lineart", "illustration"):
+    if cfg.render.outline and cfg.render.engine not in ("outline", "lineart", "illustration",
+                                                        "singleline"):
         note("tracing outlines")
         overlay, strengths = engines.outline.generate(
             value, coverage, canvas, cfg.pen, cfg.render,

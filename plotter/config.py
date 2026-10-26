@@ -220,6 +220,10 @@ class RenderConfig:
     #: Every engine but illustration (which has its own): fade tone on the
     #: backdrop using depth.  0 = whole frame alike, 1 = subject only.
     subject_focus: float = 0.8
+    # one line
+    #: How much the single line traces: 1 = about fourteen picture widths of
+    #: contour; lower is sparser and more abstract.
+    singleline_detail: float = 1.0
     # region-adaptive
     region_segments: int = 400     # approximate SLIC superpixel count
     #: How much local texture energy it takes for a region to be routed to
