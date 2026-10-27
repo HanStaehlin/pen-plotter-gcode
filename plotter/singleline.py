@@ -63,8 +63,11 @@ def select_contours(dark: np.ndarray, near: np.ndarray | None = None, detail: fl
     scribbles, so contours shorter than ``min_frac`` of the picture are
     dropped and the rest ranked by darkness times length - weighted toward
     the subject when a depth map says where it is - until the length budget
-    (``detail`` x 14 picture widths) is spent.  A contour far from all the
-    others is dropped too: reaching it takes a long straight jump.
+    (``detail`` x 14 picture widths) is spent.
+
+    The kept contours are then grouped by proximity, and groups far from
+    the main one are dropped: reaching them would take a long straight jump
+    across the page, the one mark that gives a single-line drawing away.
     """
     from .engines import outline
     h, w = dark.shape
@@ -78,7 +81,7 @@ def select_contours(dark: np.ndarray, near: np.ndarray | None = None, detail: fl
     strength = np.array([outline._mean_along(dark, p) for p in strokes])
     subject = (np.array([outline._mean_along(near, p) for p in strokes])
                if near is not None else np.ones(len(strokes)))
-    score = strength * lens * (0.15 + 0.85 * subject)
+    score = strength * lens * (0.05 + 0.95 * subject ** 2)
     score[lens < min_frac * size] = 0.0
     order = [i for i in np.argsort(-score) if score[i] > 0]
     budget, kept, used = detail * 14.0 * size, [], 0.0
@@ -88,19 +91,61 @@ def select_contours(dark: np.ndarray, near: np.ndarray | None = None, detail: fl
         kept.append(i)
         used += lens[i]
     chosen = [strokes[i] for i in kept]
-    if len(chosen) < 3:
+    if len(chosen) < 2:
         return chosen
+    group = _proximity_groups(chosen, isolated_frac * size)
+    totals = np.bincount(group, weights=score[kept])
+    main = totals >= MAIN_GROUP_SHARE * totals.max()
+    return [p for p, g in zip(chosen, group) if main[g]]
+
+
+#: A group of contours is kept if it carries at least this share of the
+#: biggest group's importance; smaller ones far away are not worth the jump.
+MAIN_GROUP_SHARE = 0.35
+
+
+def _proximity_groups(strokes, reach: float) -> np.ndarray:
+    """Group label per stroke: strokes within ``reach`` of each other share one."""
+    from scipy.sparse import coo_matrix
+    from scipy.sparse.csgraph import connected_components
     from scipy.spatial import cKDTree
-    pts = np.vstack(chosen)
-    owner = np.concatenate([np.full(len(p), k) for k, p in enumerate(chosen)])
-    tree = cKDTree(pts)
-    keep = []
-    for k, p in enumerate(chosen):
-        d, j = tree.query(p, k=min(40, len(pts)))
-        other = owner[j] != k
-        gap = d[other].min() if other.any() else np.inf
-        keep.append(gap <= isolated_frac * size)
-    return [p for p, k in zip(chosen, keep) if k]
+    pts = np.vstack(strokes)
+    owner = np.concatenate([np.full(len(p), k) for k, p in enumerate(strokes)])
+    pairs = cKDTree(pts).query_pairs(reach, output_type="ndarray")
+    n = len(strokes)
+    if len(pairs) == 0:
+        return np.arange(n)
+    a, b = owner[pairs[:, 0]], owner[pairs[:, 1]]
+    graph = coo_matrix((np.ones(len(a)), (a, b)), shape=(n, n))
+    return connected_components(graph, directed=False)[1]
+
+
+def face_weight(image_rgb: np.ndarray, size: tuple[int, int]) -> np.ndarray | None:
+    """1 over faces (with hair and chin), falling off around them; None if none.
+
+    In a portrait the face is what the single line must get right, and
+    depth alone does not know that: behind the sitter a door frame can be as
+    near and as high-contrast as the face.  OpenCV's stock frontal-face
+    detector is enough to say where the face is.
+    """
+    import cv2
+    W, H = size
+    gray = cv2.cvtColor(cv2.resize(image_rgb, (W, H), interpolation=cv2.INTER_AREA),
+                        cv2.COLOR_RGB2GRAY)
+    det = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+    faces = det.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=6,
+                                 minSize=(max(24, W // 12), max(24, W // 12)))
+    if len(faces) == 0:
+        return None
+    m = np.zeros((H, W), np.float32)
+    for x, y, fw, fh in faces:
+        # the detector boxes eyes to mouth; widen to forehead, hair and chin
+        cv2.ellipse(m, (int(x + fw / 2), int(y + fh * 0.45)),
+                    (int(fw * 0.85), int(fh * 1.05)), 0, 0, 360, 1.0, -1)
+        # neck and shoulders: the sitter, not the room behind them
+        cv2.ellipse(m, (int(x + fw / 2), int(y + fh * 2.4)),
+                    (int(fw * 1.5), int(fh * 1.1)), 0, 0, 360, 0.7, -1)
+    return cv2.GaussianBlur(m, (0, 0), max(2.0, 0.08 * W))
 
 
 def contour_target(path: np.ndarray, dark: np.ndarray, jump_px: float = 4.0,

@@ -29,9 +29,14 @@ def generate(value, coverage, canvas, pen, cfg, features=None, form=None, image_
         small = cv2.resize(value, (W, H), interpolation=cv2.INTER_AREA)
         dark = np.clip(1.0 - small, 0.0, 1.0) * (cv2.Laplacian(small, cv2.CV_32F) > 0.02)
     near = None
-    if depth_mod.available() and getattr(cfg, "singleline_focus", True):
+    if depth_mod.available():
         d = depth_mod.estimate(rgb, size=(W, H), model=cfg.depth_model)
         near = np.clip((d - 0.25) / 0.45, 0.0, 1.0)
+    face = singleline.face_weight(rgb, (W, H))
+    if face is not None:
+        # The face outranks everything else near the camera.
+        base = near if near is not None else np.ones_like(face)
+        near = np.maximum(0.3 * base, face)
 
     contours = singleline.select_contours(dark, near, detail=cfg.singleline_detail)
     if not contours:

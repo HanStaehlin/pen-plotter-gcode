@@ -47,3 +47,10 @@ def test_fit_keeps_one_open_line_near_the_target():
     assert line.ndim == 2 and len(line) > len(path)
     r = np.hypot(line[:, 0] - 50, line[:, 1] - 50)
     assert np.median(np.abs(r - 25)) < 3.0
+
+
+def test_far_groups_are_dropped_to_avoid_long_jumps():
+    near_a = [_ring(40, 40, 12), _ring(70, 40, 12)]          # the subject: close together
+    far = [_ring(180, 180, 5)]                                # small and far away
+    groups = singleline._proximity_groups(near_a + far, reach=12.0)
+    assert groups[0] == groups[1] != groups[2]
