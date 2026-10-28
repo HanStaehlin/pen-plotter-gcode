@@ -31,10 +31,16 @@ def generate(value, coverage, canvas, pen, cfg, features=None, form=None,
     lines, strengths = outline.generate(value, coverage, canvas, pen, cfg,
                                         strength=cfg.outline_strength, form=form,
                                         image_rgb=image_rgb, with_strength=True)
+    h, w = coverage.shape
+    focus = float(np.clip(cfg.illustration_focus, 0.0, 1.0))
+    near = None
+    if focus > 0 and image_rgb is not None:
+        from .. import subject
+        near = subject.near(image_rgb, (w, h), cfg)
+        lines, strengths = subject.keep_lines(lines, strengths, near, focus)
 
     # Rasterise the line layer and keep shading off it, with a margin of a
     # pen width so hatching doesn't pile up alongside every contour.
-    h, w = coverage.shape
     line_mask = np.zeros((h, w), np.uint8)
     if lines:
         cv2.polylines(line_mask, [p.astype(np.int32) for p in lines], False, 255,
@@ -56,8 +62,7 @@ def generate(value, coverage, canvas, pen, cfg, features=None, form=None,
     # photograph's own tone is flat.
     depth_map = None
     rim = float(np.clip(cfg.illustration_rim, 0.0, 1.0))
-    focus = float(np.clip(cfg.illustration_focus, 0.0, 1.0))
-    if (rim > 0 or focus > 0) and image_rgb is not None:
+    if rim > 0 and image_rgb is not None:
         from .. import depth as depth_mod
         if depth_mod.available():
             depth_map = depth_mod.estimate(image_rgb, size=(w, h),
@@ -73,10 +78,7 @@ def generate(value, coverage, canvas, pen, cfg, features=None, form=None,
     # Spend the shading on the subject.  A blurred background - grass behind
     # a dog, a wall behind a sitter - still has mid-dark tone, and hatching it
     # faithfully produces a field of confetti that competes with the subject.
-    # Depth separates the two far more reliably than tone does.
-    if focus > 0 and depth_map is not None:
-        near = np.clip((depth_map - 0.25) / 0.45, 0.0, 1.0)
-        near = near * near * (3.0 - 2.0 * near)            # smoothstep
+    if near is not None:
         shade_cov *= (1.0 - focus) + focus * near
     shade_cov[line_mask > 0] = 0.0
 

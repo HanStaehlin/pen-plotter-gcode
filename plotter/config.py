@@ -220,6 +220,9 @@ class RenderConfig:
     #: Every engine but illustration (which has its own): fade tone on the
     #: backdrop using depth.  0 = whole frame alike, 1 = subject only.
     subject_focus: float = 0.8
+    #: Find the subject with a segmentation model (BiRefNet-lite, via rembg)
+    #: rather than depth.  Off, or without rembg, depth stands in.
+    subject_mask: bool = True
     # one line
     #: How much the single line traces: 1 = about fourteen picture widths of
     #: contour; lower is sparser and more abstract.

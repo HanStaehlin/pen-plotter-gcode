@@ -293,6 +293,25 @@ cleaning up the mask (tried; made no measurable difference). Worth it when a
 subject genuinely mixes texture and smooth shading; pure `flowlines` remains
 the better choice when everything in frame is already texture.
 
+## The subject
+
+Every style spends ink in proportion to darkness, so a dark wall behind a
+sitter costs as much plot time as the sitter. `plotter/subject.py` finds
+the subject with BiRefNet-lite (MIT, via rembg) and every style uses it:
+tone on the backdrop fades (`--subject-focus`; Hilbert and Waves fade it
+fully), and line strokes lying mostly off the subject are dropped, since a
+line is either drawn or not. The mask's edge is feathered, so the subject's
+own silhouette stays.
+
+Compared on the test photos with u2net, IS-Net and BiRefNet-portrait, it was
+the only model that kept a whole jacket under a beard, curls of hair and a
+dog's body while finding almost nothing in a landscape. When the mask covers
+under 4% or over 85% of the picture there is no single subject and the whole
+frame is drawn. Depth, the earlier method, stands in only when segmentation
+cannot run; it failed whenever the backdrop was also near, like a door frame
+beside a seated woman. Elderly portrait: illustration 7m 17s -> 3m 08s,
+Hilbert 14m 39s -> 7m 02s; dog, Waves 39m 55s -> 26m 58s.
+
 ## One line
 
 After Magne et al., *Single-Line Drawing Generation via Semantics-Driven

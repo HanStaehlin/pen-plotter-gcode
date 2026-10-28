@@ -15,7 +15,7 @@ WORK_PX = 480
 
 
 def generate(value, coverage, canvas, pen, cfg, features=None, form=None, image_rgb=None):
-    from .. import depth as depth_mod, learned_lines, singleline
+    from .. import learned_lines, singleline
     h, w = coverage.shape
     s = WORK_PX / max(h, w)
     W, H = max(8, int(round(w * s))), max(8, int(round(h * s)))
@@ -28,10 +28,8 @@ def generate(value, coverage, canvas, pen, cfg, features=None, form=None, image_
         # Without the network: dark, thin structure from the photo itself.
         small = cv2.resize(value, (W, H), interpolation=cv2.INTER_AREA)
         dark = np.clip(1.0 - small, 0.0, 1.0) * (cv2.Laplacian(small, cv2.CV_32F) > 0.02)
-    near = None
-    if depth_mod.available():
-        d = depth_mod.estimate(rgb, size=(W, H), model=cfg.depth_model)
-        near = np.clip((d - 0.25) / 0.45, 0.0, 1.0)
+    from .. import subject
+    near = subject.near(rgb, (W, H), cfg)
     face = singleline.face_weight(rgb, (W, H))
     if face is not None:
         # The face outranks everything else near the camera.

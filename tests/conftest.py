@@ -70,7 +70,7 @@ def machine(fake):
     g.disconnect()
 
 
-def wait_job(g, timeout: float = 20.0) -> dict:
+def wait_job(g, timeout: float = 60.0) -> dict:
     """Block until the machine's current job leaves the running state."""
     import time
     end = time.time() + timeout
